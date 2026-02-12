@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, computed } from 'vue';
 import * as BABYLON from '@babylonjs/core';
 import "@babylonjs/materials";
 
@@ -15,9 +15,39 @@ let engine, scene, camera;
 const meshes = new Map(); // id -> Mesh
 const playerMeshes = new Map(); // sessionId -> Mesh
 
+// Reactive state for UI logic
+const playersData = ref({});
+const syncTimeoutReached = ref(false);
+
+const totalPlayers = computed(() => Object.keys(playersData.value).length || 0);
+const loadedPlayers = computed(() => {
+    let count = 0;
+    Object.values(playersData.value).forEach(p => {
+        if (p.loaded) count++;
+    });
+    return count;
+});
+
+const isSyncing = computed(() => {
+    if (syncTimeoutReached.value) return false;
+    return loadedPlayers.value < totalPlayers.value;
+});
+
 onMounted(() => {
   initBabylon();
   setupRoomListeners();
+  
+  // Signal that our GUI is ready
+  console.log("GameView: Sending guiLoaded signal");
+  props.room.send("guiLoaded");
+
+  // Safety Timeout: 10 seconds to sync or we force start
+  setTimeout(() => {
+    if (isSyncing.value) {
+        console.warn("Sync timeout reached. Forcing game start UI.");
+        syncTimeoutReached.value = true;
+    }
+  }, 10000);
 });
 
 onUnmounted(() => {
@@ -81,7 +111,16 @@ const setupRoomListeners = () => {
 
     // Manual sync for Players
     if (state.players) {
+      const pData = {};
       state.players.forEach((player, sessionId) => {
+        // Update reactive data for HUD and Loading Screen
+        pData[sessionId] = { 
+            health: player.health, 
+            alive: player.alive, 
+            loaded: player.loaded,
+            team: player.team
+        };
+
         if (!seenPlayers.has(sessionId)) {
           seenPlayers.add(sessionId);
           createPlayerMesh(sessionId, player);
@@ -95,6 +134,7 @@ const setupRoomListeners = () => {
           mesh.isVisible = player.alive;
         }
       });
+      playersData.value = pData;
 
       // Cleanup players
       for (const sessionId of seenPlayers) {
@@ -185,7 +225,7 @@ const handleKeyDown = (e) => {
     <canvas ref="canvasRef"></canvas>
     
     <div class="hud-top-left">
-      <div v-for="(player, id) in props.room.state.players" :key="id" class="player-stat" :class="{ 'is-me': id === props.room.sessionId, 'is-dead': !player.alive }">
+      <div v-for="(player, id) in playersData" :key="id" class="player-stat" :class="{ 'is-me': id === props.room.sessionId, 'is-dead': !player.alive }">
         <span class="player-dot"></span>
         <span class="player-name">{{ id === props.room.sessionId ? 'You' : 'Player' }}</span>
         <div class="health-bar-bg">
@@ -202,6 +242,20 @@ const handleKeyDown = (e) => {
         </div>
     </div>
 
+    <div v-if="isSyncing && !winnerName" class="loading-overlay">
+        <div class="loader-content">
+            <div class="loading-spinner"></div>
+            <h3>Synchronizing Arena</h3>
+            <p>Waiting for all players to initialize...</p>
+            <div class="sync-progress">
+                <div class="progress-track">
+                    <div class="progress-bar" :style="{ width: (loadedPlayers / totalPlayers * 100) + '%' }"></div>
+                </div>
+                <span class="progress-text">{{ loadedPlayers }} / {{ totalPlayers }} Players Ready</span>
+            </div>
+        </div>
+    </div>
+
     <div class="controls-hint">
         WASD to Move | Space to Bomb
     </div>
@@ -209,6 +263,80 @@ const handleKeyDown = (e) => {
 </template>
 
 <style scoped>
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at center, #1a1a2e 0%, #0f0f1a 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+.loader-content {
+    text-align: center;
+    max-width: 300px;
+    width: 100%;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(59, 130, 246, 0.1);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    margin: 0 auto 24px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loader-content h3 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #fff;
+}
+
+.loader-content p {
+    color: #94a3b8;
+    font-size: 0.875rem;
+    margin-bottom: 24px;
+}
+
+.sync-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.progress-track {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background: #3b82f6;
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.progress-text {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #60a5fa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
 .game-view {
   width: 100vw;
   height: 100vh;

@@ -8,6 +8,7 @@ export class Player extends Schema {
     @type("boolean") ready: boolean = false;
     @type("number") team: number = -1;
     @type("string") partyId: string = "";
+    @type("boolean") loaded: boolean = false;
 }
 
 export class Block extends Schema {

@@ -52,6 +52,14 @@ export class MyRoom extends Room {
       }
     });
 
+    this.onMessage("guiLoaded", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        player.loaded = true;
+        console.log(`Player ${client.sessionId} GUI loaded.`);
+      }
+    });
+
     if (options.name) {
       this.state.roomName = options.name;
       this.setMetadata({ name: options.name });

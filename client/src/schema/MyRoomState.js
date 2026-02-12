@@ -8,7 +8,8 @@ defineTypes(Player, {
     health: "number",
     ready: "boolean",
     team: "number",
-    partyId: "string"
+    partyId: "string",
+    loaded: "boolean"
 });
 
 export class Block extends Schema {}
