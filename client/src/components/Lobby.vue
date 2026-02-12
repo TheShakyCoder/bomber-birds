@@ -358,7 +358,7 @@ const togglePartyReady = () => {
         <div class="browser-header">
           <h2>Available Rooms</h2>
           <button 
-            @click="isCreating = true" 
+            @click="createRoom" 
             class="btn-primary" 
             v-if="!isCreating && (!joinedParty || (joinedParty && isPartyLeader()))"
             :disabled="joinedParty && !isPartyLeader()"
@@ -366,19 +366,6 @@ const togglePartyReady = () => {
           >
             + Create Room
           </button>
-        </div>
-
-        <div v-if="isCreating" class="create-form">
-          <input 
-            v-model="newRoomName" 
-            placeholder="Room Name..." 
-            @keyup.enter="createRoom"
-            autofocus
-          />
-          <div class="form-actions">
-            <button @click="createRoom" class="btn-success">Confirm</button>
-            <button @click="isCreating = false" class="btn-ghost">Cancel</button>
-          </div>
         </div>
 
         <div v-if="isLoading" class="loader">

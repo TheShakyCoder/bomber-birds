@@ -198,7 +198,7 @@ const handleKeyDown = (e) => {
         <div class="victory-card">
             <h2>🏆 VICTORY 🏆</h2>
             <p>{{ winnerName }} is the last standing!</p>
-            <button @click="$emit('leave')" class="btn-primary">Return to Lobby</button>
+            <button @click="$emit('leave')" class="btn-primary">Leave Game</button>
         </div>
     </div>
 
@@ -210,8 +210,8 @@ const handleKeyDown = (e) => {
 
 <style scoped>
 .game-view {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   position: relative;
 }
 
