@@ -5,6 +5,9 @@ export class Player extends Schema {
     @type("number") z: number = 0;
     @type("boolean") alive: boolean = true;
     @type("number") health: number = 100;
+    @type("boolean") ready: boolean = false;
+    @type("number") team: number = -1;
+    @type("string") partyId: string = "";
 }
 
 export class Block extends Schema {
@@ -22,4 +25,7 @@ export class MyRoomState extends Schema {
     @type({ map: Block }) grid = new MapSchema<Block>(); // Keyed by "x,z"
     @type({ map: Bomb }) bombs = new MapSchema<Bomb>(); // Keyed by "x,z"
     @type("string") winnerId: string = "";
+    @type("boolean") gameStarted: boolean = false;
+    @type("string") roomName: string = "Lobby";
+    @type("number") countdown: number = 0;
 }

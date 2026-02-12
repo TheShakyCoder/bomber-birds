@@ -5,7 +5,10 @@ defineTypes(Player, {
     x: "number",
     z: "number",
     alive: "boolean",
-    health: "number"
+    health: "number",
+    ready: "boolean",
+    team: "number",
+    partyId: "string"
 });
 
 export class Block extends Schema {}
@@ -25,5 +28,8 @@ defineTypes(MyRoomState, {
     players: { map: Player },
     grid: { map: Block },
     bombs: { map: Bomb },
-    winnerId: "string"
+    winnerId: "string",
+    gameStarted: "boolean",
+    roomName: "string",
+    countdown: "number"
 });

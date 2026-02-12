@@ -2,11 +2,13 @@ import { Room, Client, CloseCode } from "colyseus";
 import { MyRoomState, Player, Block, Bomb } from "./schema/MyRoomState.js";
 
 export class MyRoom extends Room {
-  maxClients = 4;
+  maxClients = 20;
   state = new MyRoomState();
+  countdownInterval: any;
 
   onCreate (options: any) {
     this.onMessage("placeBomb", (client) => {
+      if (!this.state.gameStarted) return;
       const player = this.state.players.get(client.sessionId);
       if (player && player.alive) {
         const x = Math.round(player.x);
@@ -26,6 +28,7 @@ export class MyRoom extends Room {
     });
 
     this.onMessage("move", (client, message) => {
+      if (!this.state.gameStarted) return;
       const player = this.state.players.get(client.sessionId);
       if (player && player.alive) {
         const nextX = player.x + (message.dx || 0);
@@ -41,10 +44,50 @@ export class MyRoom extends Room {
       }
     });
 
+    this.onMessage("ready", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        player.ready = !player.ready;
+        this.checkAllReady();
+      }
+    });
+
     if (options.name) {
+      this.state.roomName = options.name;
       this.setMetadata({ name: options.name });
     }
     this.initGrid();
+  }
+
+  checkAllReady() {
+    let allReady = true;
+    this.state.players.forEach(p => {
+      if (!p.ready) allReady = false;
+    });
+
+    const hasEnoughPlayers = this.state.players.size >= 1; // Start with 1 for testing
+
+    if (allReady && hasEnoughPlayers) {
+      if (!this.countdownInterval) {
+        this.state.countdown = 10;
+        this.countdownInterval = this.clock.setInterval(() => {
+          this.state.countdown--;
+          if (this.state.countdown <= 0) {
+            this.state.gameStarted = true;
+            this.state.countdown = 0;
+            this.countdownInterval.clear();
+            this.countdownInterval = null;
+          }
+        }, 1000);
+      }
+    } else {
+      // Someone unreadied or not everyone ready
+      if (this.countdownInterval) {
+        this.countdownInterval.clear();
+        this.countdownInterval = null;
+        this.state.countdown = 0;
+      }
+    }
   }
 
   initGrid() {
@@ -103,11 +146,17 @@ export class MyRoom extends Room {
 
   checkWinner() {
     const alivePlayers = Array.from(this.state.players.values()).filter(p => p.alive);
-    if (alivePlayers.length === 1 && this.state.players.size > 1) {
-        // Find the sessionId of the winner
+    
+    // Check if only one team is left alive
+    const aliveTeams = new Set(alivePlayers.map(p => p.team));
+    
+    if (aliveTeams.size === 1 && this.state.players.size > 1) {
+        // Find the team ID
+        const winnerTeamId = Array.from(aliveTeams)[0];
+        // For now, we set winnerId to one of the winners
         for (let [id, player] of this.state.players.entries()) {
             if (player.alive) {
-                this.state.winnerId = id;
+                this.state.winnerId = id; 
                 break;
             }
         }
@@ -118,30 +167,63 @@ export class MyRoom extends Room {
     console.log(client.sessionId, "joined!");
     const player = new Player();
     
-    // Simple spawn point logic (corners)
+    if (options.partyId) {
+        player.partyId = options.partyId;
+        
+        let existingTeam = -1;
+        this.state.players.forEach(p => {
+            if (p.partyId === options.partyId) {
+                existingTeam = p.team;
+            }
+        });
+
+        if (existingTeam !== -1) {
+            player.team = existingTeam;
+        } else {
+            const usedTeams = new Set();
+            this.state.players.forEach(p => usedTeams.add(p.team));
+            for (let i = 0; i < 4; i++) {
+                if (!usedTeams.has(i)) {
+                    player.team = i;
+                    break;
+                }
+            }
+            if (player.team === -1) player.team = 0;
+        }
+    } else {
+        const usedTeams = new Set();
+        this.state.players.forEach(p => usedTeams.add(p.team));
+        for (let i = 0; i < 4; i++) {
+            if (!usedTeams.has(i)) {
+                player.team = i;
+                break;
+            }
+        }
+        if (player.team === -1) player.team = 0;
+    }
+
     const spawnPoints = [
       { x: 1, z: 1 },
       { x: 13, z: 13 },
       { x: 1, z: 13 },
       { x: 13, z: 1 },
     ];
-    const spawn = spawnPoints[this.clients.length % spawnPoints.length];
+    const spawnIndex = player.team % spawnPoints.length;
+    const spawn = spawnPoints[spawnIndex];
     player.x = spawn.x;
     player.z = spawn.z;
 
     this.state.players.set(client.sessionId, player);
+    this.checkAllReady();
   }
 
   onLeave (client: Client, code: CloseCode) {
     console.log(client.sessionId, "left!", code);
     this.state.players.delete(client.sessionId);
+    this.checkAllReady();
   }
 
   onDispose() {
-    /**
-     * Called when the room is disposed.
-     */
     console.log("room", this.roomId, "disposing...");
   }
-
 }

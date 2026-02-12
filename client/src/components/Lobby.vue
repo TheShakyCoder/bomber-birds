@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, shallowRef } from 'vue';
 import * as Colyseus from "@colyseus/sdk";
-import { MyRoomState } from '../schema/MyRoomState.js';
+// import { MyRoomState } from '../schema/MyRoomState.js';
+// import { PartyState } from '../schema/PartyState.js';
 
 const client = new Colyseus.Client('ws://localhost:2567');
 const rooms = ref([]);
@@ -9,8 +10,48 @@ const isCreating = ref(false);
 const newRoomName = ref('');
 const errorMessage = ref('');
 const isLoading = ref(true);
+const joinedRoom = shallowRef(null);
+const joinedParty = shallowRef(null);
+const partyInviteCode = ref('');
+const partyMembers = ref({});
+const inviteToJoin = ref('');
+const currentRoomName = ref('Initialising...');
+const currentCountdown = ref(0);
+const connectedPlayers = ref({});
 
 const emit = defineEmits(['joined']);
+
+const handleRoomJoined = (room) => {
+  joinedRoom.value = room;
+  room.onStateChange((state) => {
+    currentRoomName.value = state.roomName || 'Lobby';
+    currentCountdown.value = state.countdown || 0;
+    
+    // Convert MapSchema to plain object for Vue reactivity
+    const p = {};
+    state.players.forEach((player, id) => {
+      p[id] = { ready: player.ready };
+    });
+    connectedPlayers.value = p;
+
+    if (state.gameStarted) {
+      emit('joined', room);
+    }
+  });
+};
+
+const toggleReady = () => {
+  if (joinedRoom.value) {
+    joinedRoom.value.send("ready");
+  }
+};
+
+const leaveJoinedRoom = () => {
+  if (joinedRoom.value) {
+    joinedRoom.value.leave();
+    joinedRoom.value = null;
+  }
+};
 
 const fetchRooms = async () => {
   try {
@@ -40,28 +81,192 @@ const greekLetters = [
   'Rho', 'Sigma', 'Tau', 'Upsilon', 'Phi', 'Chi', 'Psi', 'Omega'
 ];
 
+const isPartyLeader = () => {
+  if (!joinedParty.value) {
+    console.log("isPartyLeader: No joined party");
+    return false;
+  }
+  const mySessionId = joinedParty.value.sessionId;
+  const myMember = partyMembers.value[mySessionId];
+  console.log("isPartyLeader check:", {
+    mySessionId,
+    myMember,
+    allMembers: partyMembers.value,
+    isLeader: myMember?.isLeader
+  });
+  return myMember && myMember.isLeader;
+};
+
 const createRoom = async () => {
+  console.log("createRoom called. Party:", joinedParty.value?.roomId, "Is Leader:", isPartyLeader());
+  
+  if (joinedParty.value && !isPartyLeader()) {
+    console.warn("Block: Non-leader attempted room creation");
+    errorMessage.value = "Only the party leader can create a room.";
+    return;
+  }
+
   let roomName = newRoomName.value;
   if (!roomName) {
     roomName = greekLetters[Math.floor(Math.random() * greekLetters.length)];
   }
   
   try {
-    const room = await client.create("my_room", { name: roomName }, MyRoomState);
-    emit('joined', room);
+    const room = await client.create("my_room", { name: roomName });
+    handleRoomJoined(room);
+    
+    // Lead-Follow: Signal party to join if leader
+    if (isPartyLeader()) {
+      joinedParty.value.send("startGame", { roomId: room.roomId });
+    }
   } catch (e) {
     errorMessage.value = "Failed to create room: " + e.message;
   }
 };
 
-const joinRoom = async (roomId) => {
+const joinRoom = async (roomId, options = {}) => {
+  console.log("joinRoom called for", roomId, "Party:", joinedParty.value?.roomId, "Is Leader:", isPartyLeader());
+
+  if (joinedParty.value && !isPartyLeader() && !options.partyId) {
+    console.warn("Block: Non-leader attempted manual join");
+    errorMessage.value = "Only the party leader can join a room manually.";
+    return;
+  }
+
   try {
-    const room = await client.joinById(roomId, {}, MyRoomState);
-    emit('joined', room);
+    // Fill in partyId if we are in one
+    if (joinedParty.value && !options.partyId) {
+      options.partyId = joinedParty.value.roomId;
+    }
+
+    const room = await client.joinById(roomId, options);
+    handleRoomJoined(room);
+
+    // Lead-Follow: Signal party to join if leader
+    if (isPartyLeader()) {
+      joinedParty.value.send("startGame", { roomId: room.roomId });
+    }
   } catch (e) {
     errorMessage.value = "Failed to join room: " + e.message;
   }
 };
+
+const createParty = async () => {
+  try {
+    const room = await client.create("party", {});
+    handlePartyJoined(room);
+  } catch (e) {
+    errorMessage.value = "Failed to create party: " + e.message;
+  }
+};
+
+const joinParty = async () => {
+  if (!inviteToJoin.value) return;
+  try {
+    const cleanCode = inviteToJoin.value.trim().toUpperCase();
+    errorMessage.value = "Joining party...";
+    // Resolve invite code to actual roomId first
+    const response = await client.http.get(`/party-id/${cleanCode}`);
+    
+    if (response.data && response.data.roomId) {
+        const room = await client.joinById(response.data.roomId, {});
+        handlePartyJoined(room);
+        errorMessage.value = "";
+    } else {
+        errorMessage.value = (response.data && response.data.error) || "Failed to find party.";
+    }
+  } catch (e) {
+    errorMessage.value = "Failed to join party: " + e.message;
+  }
+};
+
+const handlePartyJoined = (room) => {
+  joinedParty.value = room;
+  
+  // Set initial state values immediately (metadata as reliable fallback)
+  if (room.metadata && room.metadata.inviteCode) {
+    partyInviteCode.value = room.metadata.inviteCode;
+  } else if (room.state && room.state.inviteCode) {
+    partyInviteCode.value = room.state.inviteCode;
+  } else {
+    partyInviteCode.value = 'FETCHING...';
+  }
+
+  // Explicitly request the code after join is finalized
+  room.send("requestPartyInit");
+
+  // Use focused property listener for inviteCode (more robust than onStateChange in some environments)
+  room.state.listen?.("inviteCode", (value) => {
+     if (value) partyInviteCode.value = value;
+  });
+
+  // Fail-safe: Direct message for the invite code
+  room.onMessage("partyInit", (data) => {
+    if (data.inviteCode) {
+      partyInviteCode.value = data.inviteCode;
+    }
+  });
+
+  room.onStateChange((state) => {
+    if (!state) return;
+    if (state.inviteCode) partyInviteCode.value = state.inviteCode;
+    
+    const members = {};
+    if (state.members) {
+      state.members.forEach((m, id) => {
+        members[id] = { ready: m.ready, isLeader: m.isLeader };
+      });
+    }
+    partyMembers.value = members;
+  });
+
+  room.onMessage("startJoinGame", async (data) => {
+    // Join the specific room provided by the leader
+    // Skip if we are already in that room (leader optimization)
+    if (joinedRoom.value && joinedRoom.value.roomId === data.roomId) {
+      return;
+    }
+
+    try {
+        await joinRoom(data.roomId, { partyId: data.partyId });
+    } catch (e) {
+        console.error("Party auto-join failed:", e);
+        errorMessage.value = "Failed to join game room: " + e.message;
+    }
+  });
+};
+
+const leaveParty = () => {
+  if (joinedParty.value) {
+    joinedParty.value.leave();
+    joinedParty.value = null;
+    partyMembers.value = {};
+    partyInviteCode.value = '';
+  }
+};
+
+const startPartyGame = async () => {
+  if (joinedParty.value) {
+    errorMessage.value = "Finding game room for party...";
+    try {
+        const response = await client.http.get("/rooms");
+        if (response.data.length > 0) {
+            await joinRoom(response.data[0].roomId);
+        } else {
+            await createRoom();
+        }
+        errorMessage.value = "";
+    } catch (e) {
+        errorMessage.value = "Fail to start game: " + e.message;
+    }
+  }
+};
+
+const togglePartyReady = () => {
+    if (joinedParty.value) {
+        joinedParty.value.send("toggleReady");
+    }
+}
 </script>
 
 <template>
@@ -77,10 +282,88 @@ const joinRoom = async (roomId) => {
         <button @click="errorMessage = ''" class="close-btn">&times;</button>
       </div>
 
-      <div class="room-browser">
+      <div v-if="joinedRoom" class="ready-room">
+        <div class="ready-header">
+          <div class="room-title">
+            <span class="label">Battleground:</span>
+            <h2>{{ currentRoomName }}</h2>
+          </div>
+          <button @click="leaveJoinedRoom" class="btn-ghost">Leave</button>
+        </div>
+
+        <div class="players-list">
+          <div v-for="(player, id) in connectedPlayers" :key="id" class="player-ready-item">
+            <span class="player-name">{{ id === joinedRoom.sessionId ? 'You' : 'Player ' + id.substring(0, 4) }}</span>
+            <span class="ready-status" :class="{ 'is-ready': player.ready }">
+              {{ player.ready ? 'READY' : 'WAITING' }}
+            </span>
+          </div>
+        </div>
+
+        <div class="ready-actions">
+          <button 
+            @click="toggleReady" 
+            class="btn-ready" 
+            :class="{ 'is-ready': connectedPlayers[joinedRoom.sessionId]?.ready }"
+          >
+            {{ connectedPlayers[joinedRoom.sessionId]?.ready ? 'I am Ready!' : 'Ready Up' }}
+          </button>
+          
+          <div v-if="currentCountdown > 0" class="countdown-timer">
+            <span class="countdown-label">Battle starts in:</span>
+            <span class="countdown-value">{{ currentCountdown }}</span>
+          </div>
+          <p v-else class="waiting-hint">Waiting for all players to ready up...</p>
+        </div>
+      </div>
+
+      <div v-else class="room-browser">
+        <!-- Party System Section -->
+        <div class="party-section">
+            <div v-if="joinedParty" class="joined-party">
+                <div class="party-header">
+                    <h3>My Party: <code class="invite-code">{{ partyInviteCode }}</code></h3>
+                    <button @click="leaveParty" class="btn-ghost btn-sm">Leave Party</button>
+                </div>
+                
+                <div class="party-members-list">
+                    <div v-for="(member, id) in partyMembers" :key="id" class="party-member">
+                        <span class="member-name">
+                            {{ id === joinedParty.sessionId ? 'You' : 'Member ' + id.substring(0, 4) }}
+                            <span v-if="member.isLeader" class="leader-badge">Leader</span>
+                        </span>
+                        <span class="ready-dot" :class="{ 'is-ready': member.ready }"></span>
+                    </div>
+                </div>
+
+                <div class="party-actions">
+                    <button @click="togglePartyReady" class="btn-ready-sm" :class="{ 'is-ready': partyMembers[joinedParty.sessionId]?.ready }">
+                        {{ partyMembers[joinedParty.sessionId]?.ready ? 'Ready' : 'Not Ready' }}
+                    </button>
+                    <button v-if="partyMembers[joinedParty.sessionId]?.isLeader" @click="startPartyGame" class="btn-primary">
+                        Find Game for Party
+                    </button>
+                </div>
+            </div>
+            
+            <div v-else class="party-setup">
+                <button @click="createParty" class="btn-primary">+ Create Party</button>
+                <div class="join-party-form">
+                    <input v-model="inviteToJoin" placeholder="Enter Invite Code..." @keyup.enter="joinParty" />
+                    <button @click="joinParty" class="btn-join-sm">Join Party</button>
+                </div>
+            </div>
+        </div>
+
         <div class="browser-header">
           <h2>Available Rooms</h2>
-          <button @click="isCreating = true" class="btn-primary" v-if="!isCreating">
+          <button 
+            @click="isCreating = true" 
+            class="btn-primary" 
+            v-if="!isCreating && (!joinedParty || (joinedParty && isPartyLeader()))"
+            :disabled="joinedParty && !isPartyLeader()"
+            :title="joinedParty && !isPartyLeader() ? 'Only party leaders can create rooms' : ''"
+          >
             + Create Room
           </button>
         </div>
@@ -119,7 +402,8 @@ const joinRoom = async (roomId) => {
               <button 
                 @click="joinRoom(room.roomId)" 
                 class="btn-join"
-                :disabled="room.clients >= room.maxClients"
+                :disabled="room.clients >= room.maxClients || (joinedParty && !isPartyLeader())"
+                :title="joinedParty && !isPartyLeader() ? 'Only party leaders can join' : ''"
               >
                 Join
               </button>
@@ -387,4 +671,250 @@ input:focus {
   font-size: 1.25rem;
   cursor: pointer;
 }
+
+/* Ready Room Styles */
+.ready-room {
+    animation: fadeIn 0.4s ease-out;
+}
+
+.ready-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.room-title .label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #64748b;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+}
+
+.room-title h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #3b82f6;
+}
+
+.players-list {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 16px;
+    padding: 8px;
+    margin-bottom: 32px;
+}
+
+.player-ready-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.player-ready-item:last-child {
+    border-bottom: none;
+}
+
+.ready-status {
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #94a3b8;
+}
+
+.ready-status.is-ready {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
+.ready-actions {
+    text-align: center;
+}
+
+.btn-ready {
+    width: 100%;
+    padding: 16px;
+    border-radius: 12px;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    font-size: 1.1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-ready.is-ready {
+    background: #10b981;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+.waiting-hint {
+    margin-top: 16px;
+    font-size: 0.875rem;
+    color: #64748b;
+}
+
+.countdown-timer {
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    animation: pulse 1s infinite alternate;
+}
+
+.countdown-label {
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fca5a5;
+    font-weight: 600;
+}
+
+.countdown-value {
+    font-size: 3rem;
+    font-weight: 800;
+    color: #ef4444;
+    text-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes pulse {
+    from { transform: scale(1); opacity: 0.8; }
+    to { transform: scale(1.05); opacity: 1; }
+}
+
+/* Party System Styles */
+.party-section {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    padding: 24px;
+    margin-bottom: 32px;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.party-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.party-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #94a3b8;
+}
+
+.invite-code {
+    background: #3b82f6;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 1.2rem;
+    margin-left: 8px;
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+}
+
+.party-members-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.party-member {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 8px 16px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.member-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.leader-badge {
+    font-size: 0.7rem;
+    background: #f59e0b;
+    color: #000;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 800;
+    margin-left: 6px;
+}
+
+.ready-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #64748b;
+}
+
+.ready-dot.is-ready {
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+}
+
+.party-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.btn-ready-sm {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.btn-ready-sm.is-ready {
+    background: #10b981;
+    border-color: #10b981;
+}
+
+.party-setup {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.join-party-form {
+    display: flex;
+    gap: 8px;
+}
+
+.join-party-form input {
+    margin-bottom: 0;
+    flex: 1;
+}
+
+.btn-join-sm {
+    background: #334155;
+    color: white;
+    border: none;
+    padding: 0 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 0.8rem;
+}
+
 </style>

@@ -12,13 +12,15 @@ import {
  * Import your Room files
  */
 import { MyRoom } from "./rooms/MyRoom.js";
+import { PartyRoom } from "./rooms/PartyRoom.js";
 
 const server = defineServer({
     /**
      * Define your room handlers:
      */
     rooms: {
-        my_room: defineRoom(MyRoom)
+        my_room: defineRoom(MyRoom),
+        party: defineRoom(PartyRoom)
     },
 
     /**
@@ -31,6 +33,24 @@ const server = defineServer({
     routes: createRouter({
         available_rooms: createEndpoint("/rooms", { method: "GET" }, async (ctx) => {
             return await matchMaker.query({ name: "my_room" });
+        }),
+        party_id: createEndpoint("/party-id/:code", { method: "GET" }, async (ctx) => {
+            const searchCode = ctx.params.code.trim().toUpperCase();
+            const rooms = await matchMaker.query({ name: "party" });
+            console.log(`Searching for party code: [${searchCode}]. Found ${rooms.length} party rooms.`);
+            
+            const room = rooms.find(r => {
+                const roomCode = (r.metadata && r.metadata.inviteCode) ? r.metadata.inviteCode.trim().toUpperCase() : "";
+                return roomCode === searchCode;
+            });
+
+            if (room) {
+                console.log(`Found party! RoomId: ${room.roomId}`);
+                return { roomId: room.roomId };
+            } else {
+                console.log(`Party not found for code: [${searchCode}]`);
+                return { error: "Party not found" };
+            }
         }),
         api_hello: createEndpoint("/api/hello", { method: "GET", }, async (ctx) => {
             return { message: "Hello World" }

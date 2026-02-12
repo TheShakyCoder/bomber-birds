@@ -48,72 +48,81 @@ const initBabylon = () => {
 };
 
 const setupRoomListeners = () => {
-  if (!props.room || !props.room.state) return;
+  const room = props.room;
+  if (!room || !room.state) return;
 
-  props.room.onStateChange((state) => {
+  const seenGrid = new Set();
+  const seenPlayers = new Set();
+  const seenBombs = new Set();
+
+  room.onStateChange((state) => {
     if (state.winnerId) {
-      winnerName.value = state.winnerId === props.room.sessionId ? 'YOU' : 'Another Player';
+      winnerName.value = state.winnerId === room.sessionId ? 'YOU' : 'Another Player';
+    }
+
+    // Manual sync for Grid
+    if (state.grid) {
+      state.grid.forEach((block, key) => {
+        if (!seenGrid.has(key)) {
+          seenGrid.add(key);
+          const [x, z] = key.split(',').map(Number);
+          createBlockMesh(x, z, block.type, key);
+        }
+      });
+      // Cleanup grid (if blocks can be removed)
+      for (const key of seenGrid) {
+        if (!state.grid.has(key)) {
+          seenGrid.delete(key);
+          const mesh = meshes.get(key);
+          if (mesh) { mesh.dispose(); meshes.delete(key); }
+        }
+      }
+    }
+
+    // Manual sync for Players
+    if (state.players) {
+      state.players.forEach((player, sessionId) => {
+        if (!seenPlayers.has(sessionId)) {
+          seenPlayers.add(sessionId);
+          createPlayerMesh(sessionId, player);
+        }
+        
+        // Pull-based sync: Update mesh every state change
+        const mesh = playerMeshes.get(sessionId);
+        if (mesh) {
+          mesh.position.x = player.x;
+          mesh.position.z = player.z;
+          mesh.isVisible = player.alive;
+        }
+      });
+
+      // Cleanup players
+      for (const sessionId of seenPlayers) {
+        if (!state.players.has(sessionId)) {
+          seenPlayers.delete(sessionId);
+          const mesh = playerMeshes.get(sessionId);
+          if (mesh) { mesh.dispose(); playerMeshes.delete(sessionId); }
+        }
+      }
+    }
+
+    // Manual sync for Bombs
+    if (state.bombs) {
+      state.bombs.forEach((bomb, key) => {
+        if (!seenBombs.has(key)) {
+          seenBombs.add(key);
+          createBombMesh(bomb.x, bomb.z, key);
+        }
+      });
+      for (const key of seenBombs) {
+        if (!state.bombs.has(key)) {
+          seenBombs.delete(key);
+          const mesh = meshes.get(`bomb_${key}`);
+          if (mesh) { mesh.dispose(); meshes.delete(`bomb_${key}`); }
+        }
+      }
     }
   });
-
-  // Listen for grid blocks
-  if (props.room.state.grid) {
-    props.room.state.grid.onAdd((block, key) => {
-      const [x, z] = key.split(',').map(Number);
-      createBlockMesh(x, z, block.type, key);
-    });
-
-    props.room.state.grid.onRemove((block, key) => {
-      const mesh = meshes.get(key);
-      if (mesh) {
-        mesh.dispose();
-        meshes.delete(key);
-      }
-    });
-  }
-
-  // Listen for players
-  if (props.room.state.players) {
-    props.room.state.players.onAdd((player, sessionId) => {
-      createPlayerMesh(sessionId, player);
-      
-      player.listen("x", (value) => {
-        const mesh = playerMeshes.get(sessionId);
-        if (mesh) mesh.position.x = value;
-      });
-      player.listen("z", (value) => {
-        const mesh = playerMeshes.get(sessionId);
-        if (mesh) mesh.position.z = value;
-      });
-      player.listen("alive", (value) => {
-        const mesh = playerMeshes.get(sessionId);
-        if (mesh) mesh.isVisible = value;
-      });
-    });
-
-    props.room.state.players.onRemove((player, sessionId) => {
-      const mesh = playerMeshes.get(sessionId);
-      if (mesh) {
-        mesh.dispose();
-        playerMeshes.delete(sessionId);
-      }
-    });
-  }
-
-  // Listen for bombs
-  if (props.room.state.bombs) {
-    props.room.state.bombs.onAdd((bomb, key) => {
-      createBombMesh(bomb.x, bomb.z, key);
-    });
-
-    props.room.state.bombs.onRemove((bomb, key) => {
-      const mesh = meshes.get(`bomb_${key}`);
-      if (mesh) {
-        mesh.dispose();
-        meshes.delete(`bomb_${key}`);
-      }
-    });
-  }
 };
 
 const createBlockMesh = (x, z, type, key) => {

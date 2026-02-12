@@ -1,9 +1,9 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, shallowRef } from 'vue';
 import Lobby from './components/Lobby.vue'
 import GameView from './components/GameView.vue'
 
-const currentRoom = ref(null);
+const currentRoom = shallowRef(null);
 
 const onJoined = (room) => {
   console.log("Joined room:", room.id);
@@ -25,8 +25,8 @@ const leaveRoom = () => {
     <div v-else class="game-container">
       <div class="game-hud">
         <div class="room-info">
-          <span class="room-label">Room:</span>
-          <span class="room-id">{{ currentRoom.id }}</span>
+          <span class="room-label">Battleground:</span>
+          <span class="room-id">{{ currentRoom.state?.roomName || currentRoom.id }}</span>
         </div>
         <button @click="leaveRoom" class="btn-leave">Leave Battle</button>
       </div>
@@ -137,6 +137,7 @@ h2 {
   margin-bottom: 1rem;
   background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
