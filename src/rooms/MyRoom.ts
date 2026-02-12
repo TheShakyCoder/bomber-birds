@@ -99,16 +99,17 @@ export class MyRoom extends Room {
   }
 
   initGrid() {
-    for (let x = 0; x < 15; x++) {
-      for (let z = 0; z < 15; z++) {
-        if (x === 0 || x === 14 || z === 0 || z === 14) {
+    const size = 25;
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        if (x === 0 || x === size - 1 || z === 0 || z === size - 1) {
           const b = new Block(); b.type = "indestructible";
           this.state.grid.set(`${x},${z}`, b);
         } else if (x % 2 === 0 && z % 2 === 0) {
           const b = new Block(); b.type = "indestructible";
           this.state.grid.set(`${x},${z}`, b);
         } else if (Math.random() > 0.7) {
-          const isCorner = (x <= 2 && z <= 2) || (x >= 12 && z >= 12) || (x <= 2 && z >= 12) || (x >= 12 && z <= 2);
+          const isCorner = (x <= 2 && z <= 2) || (x >= size - 3 && z >= size - 3) || (x <= 2 && z >= size - 3) || (x >= size - 3 && z <= 2);
           if (!isCorner) {
             const b = new Block(); b.type = "destructible";
             this.state.grid.set(`${x},${z}`, b);
@@ -210,11 +211,12 @@ export class MyRoom extends Room {
         if (player.team === -1) player.team = 0;
     }
 
+    const size = 45;
     const spawnPoints = [
       { x: 1, z: 1 },
-      { x: 13, z: 13 },
-      { x: 1, z: 13 },
-      { x: 13, z: 1 },
+      { x: size - 2, z: size - 2 },
+      { x: 1, z: size - 2 },
+      { x: size - 2, z: 1 },
     ];
     const spawnIndex = player.team % spawnPoints.length;
     const spawn = spawnPoints[spawnIndex];

@@ -63,6 +63,16 @@ const initBabylon = () => {
   camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 3, 20, new BABYLON.Vector3(7, 0, 7), scene);
   camera.attachControl(canvasRef.value, true);
 
+  // Disable rotation but keep zoom
+  camera.lowerAlphaLimit = camera.alpha;
+  camera.upperAlphaLimit = camera.alpha;
+  camera.lowerBetaLimit = camera.beta;
+  camera.upperBetaLimit = camera.beta;
+  
+  // Zoom settings
+  camera.lowerRadiusLimit = 5;
+  camera.upperRadiusLimit = 30;
+
   const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
   light.intensity = 0.7;
 
@@ -202,15 +212,62 @@ const createPlayerMesh = (sessionId, player) => {
   mesh.material = mat;
 
   playerMeshes.set(sessionId, mesh);
+
+  // Center camera on local player and apply team-based rotation
+  if (isMe) {
+    camera.lockedTarget = mesh;
+    
+    // Set fixed rotation based on team so spawn is always bottom-left
+    let alpha = -Math.PI / 2; // Team 0 Default
+    if (player.team === 1) alpha = Math.PI / 2;
+    if (player.team === 2) alpha = Math.PI;
+    if (player.team === 3) alpha = 0;
+
+    camera.alpha = alpha;
+    camera.beta = Math.PI / 4;
+    camera.radius = 12;
+
+    // Lock rotation at this team-specific angle
+    camera.lowerAlphaLimit = alpha;
+    camera.upperAlphaLimit = alpha;
+    camera.lowerBetaLimit = camera.beta;
+    camera.upperBetaLimit = camera.beta;
+  }
 };
 
 const handleKeyDown = (e) => {
+  const myPlayer = playersData.value[props.room.sessionId];
+  if (!myPlayer) return;
+
   let move = null;
+  const team = myPlayer.team;
+
+  // Remap keys based on team rotation (Bottom-Left perspective)
   switch (e.key) {
-    case 'ArrowUp': case 'w': move = { dx: 0, dz: 1 }; break;
-    case 'ArrowDown': case 's': move = { dx: 0, dz: -1 }; break;
-    case 'ArrowLeft': case 'a': move = { dx: -1, dz: 0 }; break;
-    case 'ArrowRight': case 'd': move = { dx: 1, dz: 0 }; break;
+    case 'ArrowUp': case 'w': 
+        if (team === 0) move = { dx: 0, dz: 1 };
+        else if (team === 1) move = { dx: 0, dz: -1 };
+        else if (team === 2) move = { dx: 1, dz: 0 };
+        else if (team === 3) move = { dx: -1, dz: 0 };
+        break;
+    case 'ArrowDown': case 's': 
+        if (team === 0) move = { dx: 0, dz: -1 };
+        else if (team === 1) move = { dx: 0, dz: 1 };
+        else if (team === 2) move = { dx: -1, dz: 0 };
+        else if (team === 3) move = { dx: 1, dz: 0 };
+        break;
+    case 'ArrowLeft': case 'a': 
+        if (team === 0) move = { dx: -1, dz: 0 };
+        else if (team === 1) move = { dx: 1, dz: 0 };
+        else if (team === 2) move = { dx: 0, dz: 1 };
+        else if (team === 3) move = { dx: 0, dz: -1 };
+        break;
+    case 'ArrowRight': case 'd': 
+        if (team === 0) move = { dx: 1, dz: 0 };
+        else if (team === 1) move = { dx: -1, dz: 0 };
+        else if (team === 2) move = { dx: 0, dz: -1 };
+        else if (team === 3) move = { dx: 0, dz: 1 };
+        break;
     case ' ': props.room.send("placeBomb"); break;
   }
 
