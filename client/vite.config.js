@@ -17,7 +17,7 @@ export default defineConfig({
       cache: false,
       output: {
         manualChunks: {
-          'p5-chunk': ['p5'],
+          'babylon-chunk': ['@babylonjs/core', '@babylonjs/materials'],
           'colyseus-chunk': ['@colyseus/sdk'],
         },
         entryFileNames: `assets/[name].js`,
