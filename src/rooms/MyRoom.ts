@@ -340,11 +340,11 @@ export class MyRoom extends Room {
     });
 
     const formation = [
-        { up: 1, right: 1 }, // Center of 3x3 base
-        { up: 0, right: 0 }, 
-        { up: 0, right: 2 },
-        { up: 2, right: 0 },
-        { up: 2, right: 2 }
+        { up: 4, right: 0 }, // P1
+        { up: 4, right: 2 }, // P2
+        { up: 4, right: 4 }, // P3
+        { up: 2, right: 4 }, // P4
+        { up: 0, right: 4 }  // P5
     ];
     
     const offset = formation[teamIndex % formation.length];
