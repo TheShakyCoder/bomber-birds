@@ -1,61 +1,80 @@
 <script setup>
-import { ref, onMounted, onUnmounted, shallowRef } from 'vue';
+import { ref, onMounted, onUnmounted, shallowRef, computed, watch } from 'vue';
 import * as Colyseus from "@colyseus/sdk";
 // import { MyRoomState } from '../schema/MyRoomState.js';
 // import { PartyState } from '../schema/PartyState.js';
 
-const client = new Colyseus.Client('ws://localhost:2567');
+const props = defineProps(['client', 'party', 'partyMembers', 'partyCode', 'room']);
+const emit = defineEmits(['roomJoined', 'partyJoined', 'partyLeft']);
+
 const rooms = ref([]);
 const isCreating = ref(false);
 const newRoomName = ref('');
 const errorMessage = ref('');
 const isLoading = ref(true);
-const joinedRoom = shallowRef(null);
-const joinedParty = shallowRef(null);
-const partyInviteCode = ref('');
-const partyMembers = ref({});
+const joinedRoom = computed(() => props.room);
+const copySuccess = ref(false);
 const inviteToJoin = ref('');
 const currentRoomName = ref('Initialising...');
 const currentCountdown = ref(0);
 const connectedPlayers = ref({});
 
-const emit = defineEmits(['joined']);
+// If initialParty/Room exists, we need to sync logic
+onMounted(() => {
+    if (props.party) {
+        handlePartyJoined(props.party);
+    }
+    if (props.room) {
+        setupRoomListeners(props.room);
+    }
+});
 
-const handleRoomJoined = (room) => {
-  joinedRoom.value = room;
+watch(() => props.room, (newRoom) => {
+    if (newRoom) {
+        setupRoomListeners(newRoom);
+    }
+});
+
+const setupRoomListeners = (room) => {
+  if (!room) return;
+  console.log("Lobby: Setting up listeners for room", room.id);
+  
   room.onStateChange((state) => {
     currentRoomName.value = state.roomName || 'Lobby';
     currentCountdown.value = state.countdown || 0;
     
-    // Convert MapSchema to plain object for Vue reactivity
     const p = {};
     state.players.forEach((player, id) => {
       p[id] = { ready: player.ready };
     });
     connectedPlayers.value = p;
-
-    if (state.gameStarted) {
-      emit('joined', room);
-    }
   });
 };
 
 const toggleReady = () => {
-  if (joinedRoom.value) {
-    joinedRoom.value.send("ready");
-  }
+    if (props.room) {
+        props.room.send("ready");
+    }
 };
 
 const leaveJoinedRoom = () => {
-  if (joinedRoom.value) {
-    joinedRoom.value.leave();
-    joinedRoom.value = null;
-  }
+    // If we are in a battle, App.vue handles the signaling.
+    // If we are in the Lobby (props.room exists), we should also signal if lead.
+    const isLeader = props.party && props.partyMembers[props.party.sessionId]?.isLeader;
+    
+    if (isLeader && props.party) {
+        console.log("Lobby: Leader leaving pre-battle - Signaling party");
+        props.party.send("leaveGame");
+    }
+
+    if (props.room) {
+        props.room.leave();
+    }
 };
 
 const fetchRooms = async () => {
   try {
-    const response = await client.http.get("/rooms");
+    const response = await props.client.http.get("/rooms");
     rooms.value = response.data;
   } catch (e) {
     console.error("Failed to fetch rooms:", e);
@@ -82,25 +101,18 @@ const greekLetters = [
 ];
 
 const isPartyLeader = () => {
-  if (!joinedParty.value) {
-    console.log("isPartyLeader: No joined party");
+  if (!props.party) {
     return false;
   }
-  const mySessionId = joinedParty.value.sessionId;
-  const myMember = partyMembers.value[mySessionId];
-  console.log("isPartyLeader check:", {
-    mySessionId,
-    myMember,
-    allMembers: partyMembers.value,
-    isLeader: myMember?.isLeader
-  });
+  const mySessionId = props.party.sessionId;
+  const myMember = props.partyMembers[mySessionId];
   return myMember && myMember.isLeader;
 };
 
 const createRoom = async () => {
-  console.log("createRoom called. Party:", joinedParty.value?.roomId, "Is Leader:", isPartyLeader());
+  console.log("createRoom called. Party:", props.party?.roomId, "Is Leader:", isPartyLeader());
   
-  if (joinedParty.value && !isPartyLeader()) {
+  if (props.party && !isPartyLeader()) {
     console.warn("Block: Non-leader attempted room creation");
     errorMessage.value = "Only the party leader can create a room.";
     return;
@@ -113,16 +125,16 @@ const createRoom = async () => {
   
   try {
     const options = { name: roomName };
-    if (joinedParty.value) {
-      options.partyId = joinedParty.value.roomId;
+    if (props.party) {
+      options.partyId = props.party.roomId;
     }
     
-    const room = await client.create("my_room", options);
-    handleRoomJoined(room);
+    const room = await props.client.create("my_room", options);
+    emit('roomJoined', room);
     
     // Lead-Follow: Signal party to join if leader
     if (isPartyLeader()) {
-      joinedParty.value.send("startGame", { roomId: room.roomId });
+      props.party.send("startGame", { roomId: room.roomId });
     }
   } catch (e) {
     errorMessage.value = "Failed to create room: " + e.message;
@@ -130,9 +142,9 @@ const createRoom = async () => {
 };
 
 const joinRoom = async (roomId, options = {}) => {
-  console.log("joinRoom called for", roomId, "Party:", joinedParty.value?.roomId, "Is Leader:", isPartyLeader());
+  console.log("joinRoom called for", roomId, "Party:", props.party?.roomId, "Is Leader:", isPartyLeader());
 
-  if (joinedParty.value && !isPartyLeader() && !options.partyId) {
+  if (props.party && !isPartyLeader() && !options.partyId) {
     console.warn("Block: Non-leader attempted manual join");
     errorMessage.value = "Only the party leader can join a room manually.";
     return;
@@ -140,16 +152,16 @@ const joinRoom = async (roomId, options = {}) => {
 
   try {
     // Fill in partyId if we are in one
-    if (joinedParty.value && !options.partyId) {
-      options.partyId = joinedParty.value.roomId;
+    if (props.party && !options.partyId) {
+      options.partyId = props.party.roomId;
     }
 
-    const room = await client.joinById(roomId, options);
-    handleRoomJoined(room);
+    const room = await props.client.joinById(roomId, options);
+    emit('roomJoined', room);
 
     // Lead-Follow: Signal party to join if leader
     if (isPartyLeader()) {
-      joinedParty.value.send("startGame", { roomId: room.roomId });
+      props.party.send("startGame", { roomId: room.roomId });
     }
   } catch (e) {
     errorMessage.value = "Failed to join room: " + e.message;
@@ -158,7 +170,7 @@ const joinRoom = async (roomId, options = {}) => {
 
 const createParty = async () => {
   try {
-    const room = await client.create("party", {});
+    const room = await props.client.create("party", {});
     handlePartyJoined(room);
   } catch (e) {
     errorMessage.value = "Failed to create party: " + e.message;
@@ -171,10 +183,10 @@ const joinParty = async () => {
     const cleanCode = inviteToJoin.value.trim().toUpperCase();
     errorMessage.value = "Joining party...";
     // Resolve invite code to actual roomId first
-    const response = await client.http.get(`/party-id/${cleanCode}`);
+    const response = await props.client.http.get(`/party-id/${cleanCode}`);
     
     if (response.data && response.data.roomId) {
-        const room = await client.joinById(response.data.roomId, {});
+        const room = await props.client.joinById(response.data.roomId, {});
         handlePartyJoined(room);
         errorMessage.value = "";
     } else {
@@ -186,75 +198,21 @@ const joinParty = async () => {
 };
 
 const handlePartyJoined = (room) => {
-  joinedParty.value = room;
-  
-  // Set initial state values immediately (metadata as reliable fallback)
-  if (room.metadata && room.metadata.inviteCode) {
-    partyInviteCode.value = room.metadata.inviteCode;
-  } else if (room.state && room.state.inviteCode) {
-    partyInviteCode.value = room.state.inviteCode;
-  } else {
-    partyInviteCode.value = 'FETCHING...';
-  }
-
-  // Explicitly request the code after join is finalized
-  room.send("requestPartyInit");
-
-  // Use focused property listener for inviteCode (more robust than onStateChange in some environments)
-  room.state.listen?.("inviteCode", (value) => {
-     if (value) partyInviteCode.value = value;
-  });
-
-  // Fail-safe: Direct message for the invite code
-  room.onMessage("partyInit", (data) => {
-    if (data.inviteCode) {
-      partyInviteCode.value = data.inviteCode;
-    }
-  });
-
-  room.onStateChange((state) => {
-    if (!state) return;
-    if (state.inviteCode) partyInviteCode.value = state.inviteCode;
-    
-    const members = {};
-    if (state.members) {
-      state.members.forEach((m, id) => {
-        members[id] = { ready: m.ready, isLeader: m.isLeader };
-      });
-    }
-    partyMembers.value = members;
-  });
-
-  room.onMessage("startJoinGame", async (data) => {
-    // Join the specific room provided by the leader
-    // Skip if we are already in that room (leader optimization)
-    if (joinedRoom.value && joinedRoom.value.roomId === data.roomId) {
-      return;
-    }
-
-    try {
-        await joinRoom(data.roomId, { partyId: data.partyId });
-    } catch (e) {
-        console.error("Party auto-join failed:", e);
-        errorMessage.value = "Failed to join game room: " + e.message;
-    }
-  });
+  emit('partyJoined', room);
 };
 
 const leaveParty = () => {
-  if (joinedParty.value) {
-    joinedParty.value.leave();
-    joinedParty.value = null;
-    partyMembers.value = {};
-    partyInviteCode.value = '';
+  if (props.party) {
+    props.party.leave();
+    emit('partyLeft');
   }
 };
 
 const startPartyGame = async () => {
-  if (joinedParty.value) {
+  if (props.party) {
     errorMessage.value = "Finding game room for party...";
     try {
-        const response = await client.http.get("/rooms");
+        const response = await props.client.http.get("/rooms");
         if (response.data.length > 0) {
             await joinRoom(response.data[0].roomId);
         } else {
@@ -268,10 +226,34 @@ const startPartyGame = async () => {
 };
 
 const togglePartyReady = () => {
-    if (joinedParty.value) {
-        joinedParty.value.send("toggleReady");
+    if (props.party) {
+        props.party.send("toggleReady");
     }
 }
+
+const copyPartyCode = async () => {
+    if (props.partyCode) {
+        try {
+            await navigator.clipboard.writeText(props.partyCode);
+            copySuccess.value = true;
+            setTimeout(() => copySuccess.value = false, 2000);
+        } catch (err) {
+            console.error('Failed to copy: ', err);
+        }
+    }
+};
+
+const pasteInviteCode = async () => {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+            inviteToJoin.value = text.trim().toUpperCase();
+        }
+    } catch (err) {
+        console.error('Failed to paste: ', err);
+        errorMessage.value = "Clipboard access denied. Please paste manually.";
+    }
+};
 </script>
 
 <template>
@@ -325,16 +307,23 @@ const togglePartyReady = () => {
       <div v-else class="room-browser">
         <!-- Party System Section -->
         <div class="party-section">
-            <div v-if="joinedParty" class="joined-party">
+            <div v-if="party" class="joined-party">
                 <div class="party-header">
-                    <h3>My Party: <code class="invite-code">{{ partyInviteCode }}</code></h3>
+                    <h3>My Party: 
+                        <div class="invite-container">
+                            <code class="invite-code">{{ partyCode }}</code>
+                            <button @click="copyPartyCode" class="btn-copy" :class="{ 'is-copied': copySuccess }">
+                                {{ copySuccess ? 'COPIED!' : 'COPY' }}
+                            </button>
+                        </div>
+                    </h3>
                     <button @click="leaveParty" class="btn-ghost btn-sm">Leave Party</button>
                 </div>
                 
                 <div class="party-members-list">
                     <div v-for="(member, id) in partyMembers" :key="id" class="party-member">
                         <span class="member-name">
-                            {{ id === joinedParty.sessionId ? 'You' : 'Member ' + id.substring(0, 4) }}
+                            {{ id === party.sessionId ? 'You' : 'Member ' + id.substring(0, 4) }}
                             <span v-if="member.isLeader" class="leader-badge">Leader</span>
                         </span>
                         <span class="ready-dot" :class="{ 'is-ready': member.ready }"></span>
@@ -342,10 +331,10 @@ const togglePartyReady = () => {
                 </div>
 
                 <div class="party-actions">
-                    <button @click="togglePartyReady" class="btn-ready-sm" :class="{ 'is-ready': partyMembers[joinedParty.sessionId]?.ready }">
-                        {{ partyMembers[joinedParty.sessionId]?.ready ? 'Ready' : 'Not Ready' }}
+                    <button @click="togglePartyReady" class="btn-ready-sm" :class="{ 'is-ready': partyMembers[party.sessionId]?.ready }">
+                        {{ partyMembers[party.sessionId]?.ready ? 'Ready' : 'Not Ready' }}
                     </button>
-                    <button v-if="partyMembers[joinedParty.sessionId]?.isLeader" @click="startPartyGame" class="btn-primary">
+                    <button v-if="partyMembers[party.sessionId]?.isLeader" @click="startPartyGame" class="btn-primary">
                         Find Game for Party
                     </button>
                 </div>
@@ -354,7 +343,10 @@ const togglePartyReady = () => {
             <div v-else class="party-setup">
                 <button @click="createParty" class="btn-primary">+ Create Party</button>
                 <div class="join-party-form">
-                    <input v-model="inviteToJoin" placeholder="Enter Invite Code..." @keyup.enter="joinParty" />
+                    <div class="input-with-paste">
+                        <input v-model="inviteToJoin" placeholder="Enter Party Code..." @keyup.enter="joinParty" />
+                        <button @click="pasteInviteCode" class="btn-paste" title="Paste from clipboard">PASTE</button>
+                    </div>
                     <button @click="joinParty" class="btn-join-sm">Join Party</button>
                 </div>
             </div>
@@ -365,9 +357,9 @@ const togglePartyReady = () => {
           <button 
             @click="createRoom" 
             class="btn-primary" 
-            v-if="!isCreating && (!joinedParty || (joinedParty && isPartyLeader()))"
-            :disabled="joinedParty && !isPartyLeader()"
-            :title="joinedParty && !isPartyLeader() ? 'Only party leaders can create rooms' : ''"
+            v-if="!isCreating && (!party || (party && isPartyLeader()))"
+            :disabled="party && !isPartyLeader()"
+            :title="party && !isPartyLeader() ? 'Only party leaders can create rooms' : ''"
           >
             + Create Room
           </button>
@@ -394,8 +386,8 @@ const togglePartyReady = () => {
               <button 
                 @click="joinRoom(room.roomId)" 
                 class="btn-join"
-                :disabled="room.clients >= room.maxClients || (joinedParty && !isPartyLeader())"
-                :title="joinedParty && !isPartyLeader() ? 'Only party leaders can join' : ''"
+                :disabled="room.clients >= room.maxClients || (party && !isPartyLeader())"
+                :title="party && !isPartyLeader() ? 'Only party leaders can join' : ''"
               >
                 Join
               </button>
@@ -802,15 +794,46 @@ input:focus {
     color: #94a3b8;
 }
 
+.invite-container {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+}
+
 .invite-code {
-    background: #3b82f6;
+    background: #098242;
     color: white;
     padding: 4px 12px;
     border-radius: 6px;
     font-family: monospace;
-    font-size: 1.2rem;
-    margin-left: 8px;
-    box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+    font-size: 2rem;
+    box-shadow: 0 0 15px rgba(9, 130, 66, 0.4);
+}
+
+.btn-copy {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.btn-copy:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.btn-copy.is-copied {
+    background: #098242;
+    border-color: #098242;
+    box-shadow: 0 0 10px rgba(9, 130, 66, 0.5);
 }
 
 .party-members-list {
@@ -892,6 +915,31 @@ input:focus {
 .join-party-form input {
     margin-bottom: 0;
     flex: 1;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.input-with-paste {
+    display: flex;
+    flex: 1;
+}
+
+.btn-paste {
+    background: #475569;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: none;
+    padding: 0 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    transition: all 0.2s;
+}
+
+.btn-paste:hover {
+    background: #64748b;
 }
 
 .btn-join-sm {

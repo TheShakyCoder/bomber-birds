@@ -3,9 +3,7 @@ import { onMounted, onUnmounted, ref, computed } from 'vue';
 import * as BABYLON from '@babylonjs/core';
 import "@babylonjs/materials";
 
-const props = defineProps({
-  room: Object
-});
+const props = defineProps(['room', 'party']);
 
 const emit = defineEmits(['leave']);
 

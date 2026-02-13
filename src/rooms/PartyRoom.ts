@@ -42,6 +42,13 @@ export class PartyRoom extends Room<PartyState> {
                 });
             }
         });
+
+        this.onMessage("leaveGame", (client) => {
+            const member = this.state.members.get(client.sessionId);
+            if (member && member.isLeader) {
+                this.broadcast("orderLeaveGame");
+            }
+        });
     }
 
     onJoin(client: Client, options: any) {
