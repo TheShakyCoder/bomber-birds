@@ -109,7 +109,8 @@ export class MyRoom extends Room {
           const b = new Block(); b.type = "indestructible";
           this.state.grid.set(`${x},${z}`, b);
         } else if (Math.random() > 0.7) {
-          const isCorner = (x <= 2 && z <= 2) || (x >= size - 3 && z >= size - 3) || (x <= 2 && z >= size - 3) || (x >= size - 3 && z <= 2);
+          // Expanded corner protection (6x6) to accommodate teammate spawn offsets
+          const isCorner = (x <= 5 && z <= 5) || (x >= size - 6 && z >= size - 6) || (x <= 5 && z >= size - 6) || (x >= size - 6 && z <= 5);
           if (!isCorner) {
             const b = new Block(); b.type = "destructible";
             this.state.grid.set(`${x},${z}`, b);
@@ -212,16 +213,39 @@ export class MyRoom extends Room {
     }
 
     const size = 25;
-    const spawnPoints = [
-      { x: 1, z: 1 },
-      { x: size - 2, z: size - 2 },
-      { x: 1, z: size - 2 },
-      { x: size - 2, z: 1 },
+    
+    // Calculate index within team for formation
+    let teamIndex = 0;
+    this.state.players.forEach(p => {
+        if (p.team === player.team) teamIndex++;
+    });
+
+    const formation = [
+        { up: 4, right: 0 }, // P1
+        { up: 4, right: 2 }, // P2
+        { up: 4, right: 4 }, // P3
+        { up: 2, right: 4 }, // P4
+        { up: 0, right: 4 }  // P5
     ];
-    const spawnIndex = player.team % spawnPoints.length;
-    const spawn = spawnPoints[spawnIndex];
-    player.x = spawn.x;
-    player.z = spawn.z;
+    
+    const offset = formation[teamIndex % formation.length];
+    
+    // Base corners and axis directions
+    if (player.team === 0) { // Bottom-Left (alpha -PI/2) -> Up:+Z, Right:+X
+        player.x = 1 + offset.right;
+        player.z = 1 + offset.up;
+    } else if (player.team === 1) { // Top-Right (alpha PI/2) -> Up:-Z, Right:-X
+        player.x = (size - 2) - offset.right;
+        player.z = (size - 2) - offset.up;
+    } else if (player.team === 2) { // Top-Left (alpha PI) -> Up:+X, Right:-Z (wait, see GameView remapping)
+        // Team 2 GameView mapping: W(Up): +X, D(Right): -Z
+        player.x = 1 + offset.up;
+        player.z = (size - 2) - offset.right;
+    } else if (player.team === 3) { // Bottom-Right (alpha 0) -> Up:-X, Right:+Z
+        // Team 3 GameView mapping: W(Up): -X, D(Right): +Z
+        player.x = (size - 2) - offset.up;
+        player.z = 1 + offset.right;
+    }
 
     this.state.players.set(client.sessionId, player);
     this.checkAllReady();

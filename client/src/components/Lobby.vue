@@ -112,7 +112,12 @@ const createRoom = async () => {
   }
   
   try {
-    const room = await client.create("my_room", { name: roomName });
+    const options = { name: roomName };
+    if (joinedParty.value) {
+      options.partyId = joinedParty.value.roomId;
+    }
+    
+    const room = await client.create("my_room", options);
     handleRoomJoined(room);
     
     // Lead-Follow: Signal party to join if leader
