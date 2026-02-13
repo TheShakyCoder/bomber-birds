@@ -12,6 +12,7 @@
     "@babylonjs/core": "^8.51.0",
     "@babylonjs/materials": "^8.51.0",
     "@colyseus/sdk": "^0.17.32",
+    "pinia": "^3.0.4",
     "vue": "^3.5.25"
   },
   "devDependencies": {

@@ -1,117 +1,23 @@
 <script setup>
-import { ref, shallowRef } from 'vue';
 import Lobby from './components/Lobby.vue'
 import GameView from './components/GameView.vue'
-import * as Colyseus from "@colyseus/sdk";
-import { onRoomJoined } from './scripts/lobby.js';
+import { useLobbyStore } from './stores/lobby.js';
+import { storeToRefs } from 'pinia';
 
-const client = new Colyseus.Client('ws://localhost:2567');
-const currentRoom = shallowRef(null);
-const gameStarted = ref(false);
-const joinedParty = shallowRef(null);
-const partyMembers = ref({});
-const partyInviteCode = ref('');
-const isJoining = ref(false);
+const lobbyStore = useLobbyStore();
+const { 
+  currentRoom,
+  gameStarted,
+  joinedParty
+} = storeToRefs(lobbyStore);
 
-const handleRoomJoined = (room) => onRoomJoined(room, currentRoom, gameStarted);
-
-
-
-const joinRoomByLeader = async (roomId, partyId) => {
-  if (!roomId) {
-    console.error("App: joinRoomByLeader received invalid roomId", { roomId, partyId });
-    return;
-  }
-  
-  if (isJoining.value) {
-    console.log("App: Join already in progress, skipping duplicate request");
-    return;
-  }
-
-  if (currentRoom.value && (currentRoom.value.id === roomId || currentRoom.value.roomId === roomId)) return;
-  
-  isJoining.value = true;
-  try {
-    console.log("App: Following leader to room", roomId);
-    const room = await client.joinById(roomId, { partyId });
-    onRoomJoined(room, currentRoom, gameStarted);
-  } catch (e) {
-    console.error("App: Follow leader failed:", e);
-  } finally {
-    isJoining.value = false;
-  }
-};
-
-const handlePartyJoined = (room) => {
-    if (joinedParty.value && joinedParty.value.id === room.id) {
-        console.log("App: Already joined this party instance, skipping listener setup");
-        return;
-    }
-    joinedParty.value = room;
-    
-    if (room.metadata?.inviteCode) partyInviteCode.value = room.metadata.inviteCode;
-    
-    room.onStateChange((state) => {
-        if (!state) return;
-        if (state.inviteCode) partyInviteCode.value = state.inviteCode;
-        
-        const members = {};
-        state.members.forEach((m, id) => {
-            members[id] = { ready: m.ready, isLeader: m.isLeader };
-        });
-        partyMembers.value = members;
-    });
-
-    room.onMessage("partyInit", (data) => {
-        if (data.inviteCode) partyInviteCode.value = data.inviteCode;
-    });
-
-    room.onMessage("orderLeaveGame", () => {
-        console.log("App: Party Order received - Leaving Room");
-        if (currentRoom.value) {
-            currentRoom.value.leave();
-            currentRoom.value = null;
-            gameStarted.value = false;
-        }
-    });
-
-    room.onMessage("startJoinGame", (data) => {
-        console.log("App: Received startJoinGame", data);
-        joinRoomByLeader(data.roomId, data.partyId);
-    });
-
-    room.send("requestPartyInit");
-};
-
-const leaveRoom = () => {
-  if (currentRoom.value) {
-    const mySessionId = joinedParty.value?.sessionId;
-    const isLeader = mySessionId && partyMembers.value[mySessionId]?.isLeader;
-    
-    if (isLeader && joinedParty.value) {
-        console.log("App: Leader leaving - Signaling party");
-        joinedParty.value.send("leaveGame");
-    }
-
-    currentRoom.value.leave();
-    currentRoom.value = null;
-    gameStarted.value = false;
-  }
-};
+const { leaveBattle } = lobbyStore;
 </script>
 
 <template>
   <main>
     <Lobby 
         v-if="!gameStarted" 
-        :client="client"
-        :party="joinedParty"
-        :partyMembers="partyMembers"
-        :partyCode="partyInviteCode"
-        :room="currentRoom"
-        @roomJoined="handleRoomJoined"
-        @partyJoined="handlePartyJoined"
-        @partyLeft="() => { joinedParty = null; partyMembers = {}; partyInviteCode = ''; }"
     />
     
     <div v-else class="game-container">
@@ -120,10 +26,10 @@ const leaveRoom = () => {
           <span class="room-label">Battleground:</span>
           <span class="room-id">{{ currentRoom.state?.roomName || currentRoom.id }}</span>
         </div>
-        <button @click="leaveRoom" class="btn-leave">Leave Battle</button>
+        <button @click="leaveBattle" class="btn-leave">Leave Battle</button>
       </div>
       
-      <GameView :room="currentRoom" :party="joinedParty" @leave="leaveRoom" />
+      <GameView :room="currentRoom" :party="joinedParty" @leave="leaveBattle" />
     </div>
   </main>
 </template>
