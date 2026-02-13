@@ -12,7 +12,7 @@ const partyMembers = ref({});
 const partyInviteCode = ref('');
 
 const onRoomJoined = (room) => {
-  console.log("Room synced in App:", room.id);
+  console.log("Room synced in App:", (room.id || room.roomId));
   currentRoom.value = room;
   
   room.onStateChange((state) => {
@@ -30,7 +30,12 @@ const onRoomJoined = (room) => {
 };
 
 const joinRoomByLeader = async (roomId, partyId) => {
-  if (currentRoom.value && currentRoom.value.id === roomId) return;
+  if (!roomId) {
+    console.error("App: joinRoomByLeader received invalid roomId", { roomId, partyId });
+    return;
+  }
+  
+  if (currentRoom.value && (currentRoom.value.id === roomId || currentRoom.value.roomId === roomId)) return;
   
   try {
     console.log("App: Following leader to room", roomId);
@@ -71,6 +76,7 @@ const handlePartyJoined = (room) => {
     });
 
     room.onMessage("startJoinGame", (data) => {
+        console.log("App: Received startJoinGame", data);
         joinRoomByLeader(data.roomId, data.partyId);
     });
 

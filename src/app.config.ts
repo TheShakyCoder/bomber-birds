@@ -1,3 +1,6 @@
+import { Encoder } from "@colyseus/schema";
+Encoder.BUFFER_SIZE = 16 * 1024; // 16 KB
+
 import {
     defineServer,
     defineRoom,
@@ -38,7 +41,7 @@ const server = defineServer({
             const searchCode = ctx.params.code.trim().toUpperCase();
             const rooms = await matchMaker.query({ name: "party" });
             console.log(`Searching for party code: [${searchCode}]. Found ${rooms.length} party rooms.`);
-            
+
             const room = rooms.find(r => {
                 const roomCode = (r.metadata && r.metadata.inviteCode) ? r.metadata.inviteCode.trim().toUpperCase() : "";
                 return roomCode === searchCode;

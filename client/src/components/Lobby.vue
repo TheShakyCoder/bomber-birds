@@ -1,7 +1,18 @@
 <script setup>
 import { ref, onMounted, onUnmounted, shallowRef, computed, watch } from 'vue';
 import * as Colyseus from "@colyseus/sdk";
-import { copyPartyCode, pastePartyCode } from '../scripts/lobby';
+import { 
+  GREEK_LETTERS, 
+  copyPartyCode, 
+  pastePartyCode, 
+  playerJoinsParty, 
+  fetchRooms, 
+  isPartyLeader as checkIfLeader,
+  createGameRoom,
+  joinGameRoom,
+  createPartyRoom,
+  startPartyBattle
+} from '../scripts/lobby.js';
 // import { MyRoomState } from '../schema/MyRoomState.js';
 // import { PartyState } from '../schema/PartyState.js';
 
@@ -73,12 +84,11 @@ const leaveJoinedRoom = () => {
   }
 };
 
-const fetchRooms = async () => {
+const fetchRoomsLocal = async () => {
   try {
-    const response = await props.client.http.get("/rooms");
-    rooms.value = response.data;
+    rooms.value = await fetchRooms(props.client);
   } catch (e) {
-    console.error("Failed to fetch rooms:", e);
+    // Errors handled in abstracted function
   } finally {
     isLoading.value = false;
   }
@@ -87,31 +97,18 @@ const fetchRooms = async () => {
 let refreshInterval;
 
 onMounted(() => {
-  fetchRooms();
-  refreshInterval = setInterval(fetchRooms, 3000);
+  fetchRoomsLocal();
+  refreshInterval = setInterval(fetchRoomsLocal, 3000);
 });
 
 onUnmounted(() => {
   clearInterval(refreshInterval);
 });
 
-const greekLetters = [
-  'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta',
-  'Iota', 'Kappa', 'Lambda', 'Mu', 'Nu', 'Xi', 'Omicron', 'Pi',
-  'Rho', 'Sigma', 'Tau', 'Upsilon', 'Phi', 'Chi', 'Psi', 'Omega'
-];
-
-const isPartyLeader = () => {
-  if (!props.party) {
-    return false;
-  }
-  const mySessionId = props.party.sessionId;
-  const myMember = props.partyMembers[mySessionId];
-  return myMember && myMember.isLeader;
-};
+const isPartyLeader = () => checkIfLeader(props.party, props.partyMembers);
 
 const createRoom = async () => {
-  console.log("createRoom called. Party:", props.party?.roomId, "Is Leader:", isPartyLeader());
+  console.log("createRoom called. Party:", (props.party?.id || props.party?.roomId), "Is Leader:", isPartyLeader());
 
   if (props.party && !isPartyLeader()) {
     console.warn("Block: Non-leader attempted room creation");
@@ -119,23 +116,14 @@ const createRoom = async () => {
     return;
   }
 
-  let roomName = newRoomName.value;
-  if (!roomName) {
-    roomName = greekLetters[Math.floor(Math.random() * greekLetters.length)];
-  }
+  let roomName = newRoomName.value || GREEK_LETTERS[Math.floor(Math.random() * GREEK_LETTERS.length)];
 
   try {
-    const options = { name: roomName };
-    if (props.party) {
-      options.partyId = props.party.roomId;
-    }
-
-    const room = await props.client.create("my_room", options);
+    const room = await createGameRoom(props.client, props.party, { name: roomName });
     emit('roomJoined', room);
 
-    // Lead-Follow: Signal party to join if leader
     if (isPartyLeader()) {
-      props.party.send("startGame", { roomId: room.roomId });
+      props.party.send("startGame", { roomId: (room.id || room.roomId) });
     }
   } catch (e) {
     errorMessage.value = "Failed to create room: " + e.message;
@@ -143,7 +131,7 @@ const createRoom = async () => {
 };
 
 const joinRoom = async (roomId, options = {}) => {
-  console.log("joinRoom called for", roomId, "Party:", props.party?.roomId, "Is Leader:", isPartyLeader());
+  console.log("joinRoom called for", roomId, "Party:", (props.party?.id || props.party?.roomId), "Is Leader:", isPartyLeader());
 
   if (props.party && !isPartyLeader() && !options.partyId) {
     console.warn("Block: Non-leader attempted manual join");
@@ -152,17 +140,11 @@ const joinRoom = async (roomId, options = {}) => {
   }
 
   try {
-    // Fill in partyId if we are in one
-    if (props.party && !options.partyId) {
-      options.partyId = props.party.roomId;
-    }
-
-    const room = await props.client.joinById(roomId, options);
+    const room = await joinGameRoom(props.client, roomId, props.party, options);
     emit('roomJoined', room);
 
-    // Lead-Follow: Signal party to join if leader
     if (isPartyLeader()) {
-      props.party.send("startGame", { roomId: room.roomId });
+      props.party.send("startGame", { roomId: (room.id || room.roomId) });
     }
   } catch (e) {
     errorMessage.value = "Failed to join room: " + e.message;
@@ -171,7 +153,7 @@ const joinRoom = async (roomId, options = {}) => {
 
 const createParty = async () => {
   try {
-    const room = await props.client.create("party", {});
+    const room = await createPartyRoom(props.client);
     handlePartyJoined(room);
   } catch (e) {
     errorMessage.value = "Failed to create party: " + e.message;
@@ -188,23 +170,7 @@ const pasteParty = async () => {
 }
 
 const joinParty = async () => {
-  if (!inviteToJoin.value) return;
-  try {
-    const cleanCode = inviteToJoin.value.trim().toUpperCase();
-    errorMessage.value = "Joining party...";
-    // Resolve invite code to actual roomId first
-    const response = await props.client.http.get(`/party-id/${cleanCode}`);
-
-    if (response.data && response.data.roomId) {
-      const room = await props.client.joinById(response.data.roomId, {});
-      handlePartyJoined(room);
-      errorMessage.value = "";
-    } else {
-      errorMessage.value = (response.data && response.data.error) || "Failed to find party.";
-    }
-  } catch (e) {
-    errorMessage.value = "Failed to join party: " + e.message;
-  }
+  await playerJoinsParty(inviteToJoin.value, errorMessage, props.client, handlePartyJoined);
 };
 
 const handlePartyJoined = (room) => {
@@ -222,15 +188,10 @@ const startPartyGame = async () => {
   if (props.party) {
     errorMessage.value = "Finding game room for party...";
     try {
-      const response = await props.client.http.get("/rooms");
-      if (response.data.length > 0) {
-        await joinRoom(response.data[0].roomId);
-      } else {
-        await createRoom();
-      }
+      await startPartyBattle(props.client, joinRoom, createRoom);
       errorMessage.value = "";
     } catch (e) {
-      errorMessage.value = "Fail to start game: " + e.message;
+      errorMessage.value = e.message;
     }
   }
 };
