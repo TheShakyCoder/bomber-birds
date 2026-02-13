@@ -203,7 +203,7 @@ export const useLobbyStore = defineStore('lobby', () => {
         if (!joinedParty.value) return;
         errorMessage.value = "Finding game room for party...";
         try {
-            const response = await client.http.get("/rooms");
+            const response = await client.http.get("/api/rooms");
             if (response.data.length > 0) {
                 await joinGameRoom(response.data[0].roomId);
             } else {

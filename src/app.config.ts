@@ -2,14 +2,17 @@ import { Encoder } from "@colyseus/schema";
 Encoder.BUFFER_SIZE = 16 * 1024; // 16 KB
 
 import {
-    defineServer,
     defineRoom,
     monitor,
     playground,
     matchMaker,
+    Server,
+    createRouter,
+    createEndpoint,
 } from "colyseus";
 
-import express from "express";
+import defineServer from "@colyseus/tools";
+
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -23,85 +26,98 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const server = defineServer({
-    /**
-     * Define your room handlers:
-     */
-    rooms: {
-        my_room: defineRoom(MyRoom),
-        party: defineRoom(PartyRoom)
-    },
+    routes: createRouter({
+        "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
+            console.log("ROUTER: Matched /");
+            return new Response("Colyseus Server is Running!");
+        }),
 
-    /**
-     * Bind your custom express routes here:
-     * Read more: https://expressjs.com/en/starter/basic-routing.html
-     */
-    express: (app) => {
-        // Serve static files from the public directory
-        const publicPath = path.resolve(__dirname, "..", "public");
-        app.use(express.static(publicPath));
-
-        app.get("/api/rooms", async (req, res) => {
+        "/api/rooms": createEndpoint("/api/rooms", { method: "GET" }, async (ctx) => {
+            console.log("ROUTER: Matched /api/rooms");
             try {
                 const rooms = await matchMaker.query({ name: "my_room" });
-                res.json(rooms);
+                return ctx.json(rooms);
             } catch (e) {
-                res.status(500).json({ error: (e instanceof Error) ? e.message : String(e) });
+                console.error("ROUTER ERROR /api/rooms:", e);
+                return ctx.json({ error: String(e) }, { status: 500 });
             }
-        });
+        }),
 
-        app.get("/party-id/:code", async (req, res) => {
+        "/party-id/:code": createEndpoint("/party-id/:code", { method: "GET" }, async (ctx) => {
+            console.log("ROUTER: Matched /party-id/:code", ctx.params.code);
             try {
-                const searchCode = req.params.code.trim().toUpperCase();
+                const searchCode = ctx.params.code.trim().toUpperCase();
                 const rooms = await matchMaker.query({ name: "party" });
-                console.log(`Searching for party code: [${searchCode}]. Found ${rooms.length} party rooms.`);
-
                 const room = rooms.find(r => {
                     const roomCode = (r.metadata && r.metadata.inviteCode) ? r.metadata.inviteCode.trim().toUpperCase() : "";
                     return roomCode === searchCode;
                 });
 
                 if (room) {
-                    console.log(`Found party! RoomId: ${room.roomId}`);
-                    res.json({ roomId: room.roomId });
+                    return ctx.json({ roomId: room.roomId });
                 } else {
-                    console.log(`Party not found for code: [${searchCode}]`);
-                    res.status(404).json({ error: "Party not found" });
+                    return ctx.json({ error: "Party not found" }, { status: 404 });
                 }
             } catch (e) {
-                res.status(500).json({ error: (e instanceof Error) ? e.message : String(e) });
+                return ctx.json({ error: String(e) }, { status: 500 });
             }
-        });
+        }),
 
-        app.get("/api/hello", (req, res) => {
-            res.json({ message: "Hello World" });
-        });
+        "/api/test": createEndpoint("/api/test", { method: "GET" }, async (ctx) => {
+            console.log("ROUTER: Matched /api/test");
+            return ctx.json({ status: "ok", time: new Date().toISOString() });
+        }),
 
-        app.get("/hi", (req, res) => {
-            res.send("It's time to kick ass and chew bubblegum!");
-        });
+        "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
+            console.log("ROUTER: CATCH-ALL HIT!", ctx.path);
+            return new Response(`Route not found in router: ${ctx.path}`, { status: 404 });
+        }),
+    }),
 
-        /**
-         * Use @colyseus/monitor
-         * It is recommended to protect this route with a password
-         * Read more: https://docs.colyseus.io/tools/monitoring/#restrict-access-to-the-panel-using-a-password
-         */
-        app.use("/monitor", monitor());
+    rooms: {
+        my_room: defineRoom(MyRoom),
+        party: defineRoom(PartyRoom)
+    },
 
-        /**
-         * Use @colyseus/playground
-         * (It is not recommended to expose this route in a production environment)
-         */
-        if (process.env.NODE_ENV !== "production") {
-            app.use("/playground", playground());
+    initializeGameServer: async (gameServer: Server) => {
+        console.log("------------------------------------------");
+        console.log("GAME SERVER INITIALIZING...");
+        console.log("------------------------------------------");
+
+        // Diagnostic: Check transport and router
+        const transport = (gameServer as any).transport;
+        const router = (gameServer as any).router;
+
+        console.log("Transport check:", transport ? "Found" : "Missing");
+        console.log("Router check:", router ? "Found" : "Missing");
+
+        if (transport && router && typeof transport.bindRouter === 'function') {
+            console.log("Manually binding router to transport...");
+            transport.bindRouter(router);
+            
+            // Log registered endpoints
+            if (router.endpoints) {
+                console.log("Registered endpoints:", Object.keys(router.endpoints));
+                Object.values(router.endpoints).forEach((endpoint: any) => {
+                    console.log(`  - ${endpoint.options.method} ${endpoint.path}`);
+                });
+            }
+        } else {
+            console.warn("Could not manually bind router. Transport or Router missing, or bindRouter not a function.");
+            if (transport) console.log("Transport type:", transport.constructor.name);
         }
 
-        // Fallback to index.html for SPA routing
-        app.get("*", (req, res) => {
-            const indexFile = path.join(publicPath, "index.html");
-            res.sendFile(indexFile);
-        });
+        try {
+            const existingRooms = await matchMaker.query({ name: "my_room" });
+            if (existingRooms.length === 0) {
+                console.log("Initializing Alpha room...");
+                await matchMaker.createRoom("my_room", { name: "Alpha" });
+            }
+        } catch (e) {
+            console.error("Error during room bootstrapping:", e);
+        }
+        console.log("------------------------------------------");
     }
-
 });
 
 export default server;

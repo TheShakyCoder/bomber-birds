@@ -123,7 +123,7 @@ const setupRoomListeners = () => {
         if (!seenGrid.has(key)) {
           seenGrid.add(key);
           const [x, z] = key.split(',').map(Number);
-          createBlockMesh(x, z, block.type, key);
+          createBlockMesh(x, z, block.type, key, block.team, block.isTurret);
         }
       });
       // Cleanup grid (if blocks can be removed)
@@ -191,18 +191,63 @@ const setupRoomListeners = () => {
   });
 };
 
-const createBlockMesh = (x, z, type, key) => {
-  const mesh = BABYLON.MeshBuilder.CreateBox(`block_${key}`, { size: 0.95 }, scene);
-  mesh.position.set(x, 0.5, z);
-  
+const createBlockMesh = (x, z, type, key, team, isTurret) => {
+  let mesh;
   const mat = new BABYLON.StandardMaterial(`mat_${key}`, scene);
-  if (type === "indestructible") {
+  const teamColor = TEAM_COLORS[team] || new BABYLON.Color3(0.5, 0.5, 0.5);
+
+  if (isTurret) {
+    // Castle Turret Base
+    mesh = BABYLON.MeshBuilder.CreateBox(`block_${key}`, { size: 0.95 }, scene);
+    mesh.position.set(x, 0.5, z);
+    mat.diffuseColor = teamColor;
+    mat.emissiveColor = teamColor.scale(0.2);
+    mesh.material = mat;
+
+    // Tower Structure
+    const tower = BABYLON.MeshBuilder.CreateBox(`tower_${key}`, { width: 0.7, height: 1.5, depth: 0.7 }, scene);
+    tower.parent = mesh;
+    tower.position.y = 0.75; // Sit on base
+    tower.material = mat;
+
+    // Crenelations (Top teeth)
+    const topFloor = BABYLON.MeshBuilder.CreateBox(`topFloor_${key}`, { width: 0.85, height: 0.2, depth: 0.85 }, scene);
+    topFloor.parent = tower;
+    topFloor.position.y = 0.85;
+    topFloor.material = mat;
+
+    // Small teeth blocks
+    const toothSize = 0.15;
+    const offsets = [
+      {x: 0.35, z: 0.35}, {x: -0.35, z: 0.35}, {x: 0.35, z: -0.35}, {x: -0.35, z: -0.35}
+    ];
+    offsets.forEach((off, i) => {
+      const tooth = BABYLON.MeshBuilder.CreateBox(`tooth_${key}_${i}`, { size: toothSize }, scene);
+      tooth.parent = topFloor;
+      tooth.position.set(off.x, 0.1, off.z);
+      tooth.material = mat;
+    });
+
+  } else if (type === "indestructible") {
+    mesh = BABYLON.MeshBuilder.CreateBox(`block_${key}`, { size: 0.95 }, scene);
+    mesh.position.set(x, 0.5, z);
     mat.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3);
     mat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+    mesh.material = mat;
+  } else if (type === "base") {
+    mesh = BABYLON.MeshBuilder.CreateBox(`block_${key}`, { size: 0.95 }, scene);
+    mesh.position.set(x, 0.05, z);
+    mat.diffuseColor = teamColor;
+    mat.alpha = 0.4; // Semi-transparent base floor-like block
+    mesh.scaling.y = 0.1;   // Thin floor
+    mesh.material = mat;
   } else {
+    mesh = BABYLON.MeshBuilder.CreateBox(`block_${key}`, { size: 0.95 }, scene);
+    mesh.position.set(x, 0.5, z);
     mat.diffuseColor = new BABYLON.Color3(0.6, 0.4, 0.2);
+    mesh.material = mat;
   }
-  mesh.material = mat;
+  
   meshes.set(key, mesh);
 };
 

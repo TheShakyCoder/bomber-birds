@@ -12,7 +12,10 @@ export class Player extends Schema {
 }
 
 export class Block extends Schema {
-    @type("string") type: string = "destructible"; // "indestructible" | "destructible"
+    @type("string") type: string = "destructible"; // "indestructible" | "destructible" | "base"
+    @type("number") health: number = 100;
+    @type("number") team: number = -1;
+    @type("boolean") isTurret: boolean = false;
 }
 
 export class Bomb extends Schema {

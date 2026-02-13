@@ -1,12 +1,27 @@
 import { Room, Client, CloseCode } from "colyseus";
 import { MyRoomState, Player, Block, Bomb } from "./schema/MyRoomState.js";
 
+const GREEK_LETTERS = [
+  'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta',
+  'Iota', 'Kappa', 'Lambda', 'Mu', 'Nu', 'Xi', 'Omicron', 'Pi',
+  'Rho', 'Sigma', 'Tau', 'Upsilon', 'Phi', 'Chi', 'Psi', 'Omega'
+];
+
 export class MyRoom extends Room {
   maxClients = 20;
   state = new MyRoomState();
   countdownInterval: any;
+  turretLastFired: Map<string, number> = new Map(); // key -> timestamp
 
   onCreate (options: any) {
+    if (options.name) {
+      this.state.roomName = options.name;
+    } else {
+      const name = GREEK_LETTERS[Math.floor(Math.random() * GREEK_LETTERS.length)];
+      this.state.roomName = name;
+    }
+    this.setMetadata({ name: this.state.roomName });
+
     this.onMessage("placeBomb", (client) => {
       if (!this.state.gameStarted) return;
       const player = this.state.players.get(client.sessionId);
@@ -37,7 +52,17 @@ export class MyRoom extends Room {
         // Simple collision detection (grid blocks or bombs)
         const block = this.state.grid.get(`${nextX},${nextZ}`);
         const bomb = this.state.bombs.get(`${nextX},${nextZ}`);
-        if (!block && !bomb) {
+
+        let canMove = !bomb;
+        if (block) {
+          if (block.type === "base") {
+            canMove = block.team === player.team;
+          } else {
+            canMove = false;
+          }
+        }
+
+        if (canMove) {
           player.x = nextX;
           player.z = nextZ;
         }
@@ -60,11 +85,66 @@ export class MyRoom extends Room {
       }
     });
 
-    if (options.name) {
-      this.state.roomName = options.name;
-      this.setMetadata({ name: options.name });
-    }
     this.initGrid();
+
+    // Set simulation interval for health recharge
+    this.setSimulationInterval((deltaTime) => this.update(deltaTime), 1000);
+  }
+
+  update(deltaTime: number) {
+    const now = Date.now();
+    this.state.players.forEach((player, sessionId) => {
+      if (player.alive && player.health < 100) {
+        const block = this.state.grid.get(`${Math.round(player.x)},${Math.round(player.z)}`);
+        if (block && block.type === "base" && block.team === player.team) {
+          player.health = Math.min(100, player.health + 10);
+        }
+      }
+    });
+
+    if (this.state.gameStarted) {
+      this.state.grid.forEach((block, key) => {
+        if (block.isTurret) {
+          const lastFired = this.turretLastFired.get(key) || 0;
+          if (now - lastFired > 4000) { // 4 second cooldown
+            const [tx, tz] = key.split(',').map(Number);
+            this.turretFire(key, tx, tz, block.team);
+          }
+        }
+      });
+    }
+  }
+
+  turretFire(key: string, tx: number, tz: number, team: number) {
+    let nearestEnemy: Player | null = null;
+    let minDistance = 10; // Max range
+
+    this.state.players.forEach((p) => {
+      if (p.alive && p.team !== team) {
+        const dist = Math.sqrt(Math.pow(p.x - tx, 2) + Math.pow(p.z - tz, 2));
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestEnemy = p;
+        }
+      }
+    });
+
+    if (nearestEnemy) {
+      const targetX = Math.round(nearestEnemy.x);
+      const targetZ = Math.round(nearestEnemy.z);
+      const bombKey = `${targetX},${targetZ}`;
+
+      if (!this.state.bombs.has(bombKey)) {
+        console.log(`Turret ${key} firing at ${targetX},${targetZ}`);
+        const bomb = new Bomb();
+        bomb.x = targetX;
+        bomb.z = targetZ;
+        bomb.ownerId = `turret_${key}`;
+        this.state.bombs.set(bombKey, bomb);
+        this.clock.setTimeout(() => this.explode(targetX, targetZ), 2000); // 2s fuse for turret bombs
+        this.turretLastFired.set(key, Date.now());
+      }
+    }
   }
 
   checkAllReady() {
@@ -85,6 +165,8 @@ export class MyRoom extends Room {
             this.state.countdown = 0;
             this.countdownInterval.clear();
             this.countdownInterval = null;
+            // Clear turret fire timers on game start (just in case)
+            this.turretLastFired.clear();
           }
         }, 1000);
       }
@@ -100,20 +182,50 @@ export class MyRoom extends Room {
 
   initGrid() {
     const size = 25;
+    
+    // Team Bases
+    // T0: Bottom-Left (1,1)-(3,3)
+    // T1: Top-Right (21,21)-(23,23)
+    // T2: Top-Left (1,21)-(3,23)
+    // T3: Bottom-Right (21,1)-(23,3)
+    const placeBase = (startX: number, startZ: number, team: number) => {
+      for (let x = startX; x < startX + 3; x++) {
+        for (let z = startZ; z < startZ + 3; z++) {
+          const b = new Block();
+          b.type = "base";
+          b.team = team;
+          b.health = 200; // Bases are tougher
+          if (x === startX + 1 && z === startZ + 1) {
+            b.isTurret = true;
+            b.health = 500; // Turrets are even tougher
+          }
+          this.state.grid.set(`${x},${z}`, b);
+        }
+      }
+    };
+
+    placeBase(1, 1, 0);
+    placeBase(size - 4, size - 4, 1);
+    placeBase(1, size - 4, 2);
+    placeBase(size - 4, 1, 3);
+
     for (let x = 0; x < size; x++) {
       for (let z = 0; z < size; z++) {
+        const key = `${x},${z}`;
+        if (this.state.grid.has(key)) continue;
+
         if (x === 0 || x === size - 1 || z === 0 || z === size - 1) {
           const b = new Block(); b.type = "indestructible";
-          this.state.grid.set(`${x},${z}`, b);
+          this.state.grid.set(key, b);
         } else if (x % 2 === 0 && z % 2 === 0) {
           const b = new Block(); b.type = "indestructible";
-          this.state.grid.set(`${x},${z}`, b);
+          this.state.grid.set(key, b);
         } else if (Math.random() > 0.7) {
           // Expanded corner protection (6x6) to accommodate teammate spawn offsets
           const isCorner = (x <= 5 && z <= 5) || (x >= size - 6 && z >= size - 6) || (x <= 5 && z >= size - 6) || (x >= size - 6 && z <= 5);
           if (!isCorner) {
             const b = new Block(); b.type = "destructible";
-            this.state.grid.set(`${x},${z}`, b);
+            this.state.grid.set(key, b);
           }
         }
       }
@@ -137,8 +249,15 @@ export class MyRoom extends Room {
 
       // Destroy blocks
       const block = this.state.grid.get(key);
-      if (block && block.type === "destructible") {
-        this.state.grid.delete(key);
+      if (block) {
+        if (block.type === "destructible") {
+          this.state.grid.delete(key);
+        } else if (block.type === "base") {
+          block.health -= 50;
+          if (block.health <= 0) {
+            this.state.grid.delete(key);
+          }
+        }
       }
 
       // Damage players
@@ -221,11 +340,11 @@ export class MyRoom extends Room {
     });
 
     const formation = [
-        { up: 4, right: 0 }, // P1
-        { up: 4, right: 2 }, // P2
-        { up: 4, right: 4 }, // P3
-        { up: 2, right: 4 }, // P4
-        { up: 0, right: 4 }  // P5
+        { up: 1, right: 1 }, // Center of 3x3 base
+        { up: 0, right: 0 }, 
+        { up: 0, right: 2 },
+        { up: 2, right: 0 },
+        { up: 2, right: 2 }
     ];
     
     const offset = formation[teamIndex % formation.length];

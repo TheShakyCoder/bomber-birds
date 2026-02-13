@@ -11,7 +11,7 @@
   "scripts": {
     "start": "bun --watch src/index.ts",
     "loadtest": "tsx loadtest/example.ts --room my_room --numClients 2",
-    "build": "NODE_OPTIONS=--max-old-space-size=2048 bun run clean && bun run build:client && bun run build:server",
+    "build": "bun run clean && bun run build:client && bun run build:server",
     "build:client": "cd client && ( [ -d node_modules ] || bun install ) && NODE_OPTIONS=--max-old-space-size=2048 bun run build",
     "build:server": "tsc -p tsconfig.build.json",
     "clean": "rimraf build public",
