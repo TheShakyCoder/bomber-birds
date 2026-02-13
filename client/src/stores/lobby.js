@@ -9,7 +9,7 @@ export const GREEK_LETTERS = [
 ];
 
 export const useLobbyStore = defineStore('lobby', () => {
-    const client = new Colyseus.Client('ws://localhost:2567');
+    const client = new Colyseus.Client(import.meta.env.VITE_WS_URL);
     
     // State
     const currentRoom = shallowRef(null);
