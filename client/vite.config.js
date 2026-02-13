@@ -7,7 +7,7 @@ export default defineConfig({
   build: {
     sourcemap: false,
     cssCodeSplit: false, // Combine CSS to save memory during splitting phase
-    minify: false,
+    minify: 'esbuild',
     reportCompressedSize: false,
     chunkSizeWarningLimit: 5000,
     rollupOptions: {
