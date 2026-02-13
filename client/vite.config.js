@@ -6,15 +6,18 @@ export default defineConfig({
   plugins: [vue()],
   build: {
     sourcemap: false,
-    cssCodeSplit: true,
+    cssCodeSplit: false, // Combine CSS to save memory during splitting phase
     minify: 'esbuild',
     reportCompressedSize: false,
-    chunkSizeWarningLimit: 2000,
+    chunkSizeWarningLimit: 5000,
     rollupOptions: {
       maxParallelFileOps: 1,
       cache: false,
       output: {
-        manualChunks: undefined
+        manualChunks: undefined,
+        entryFileNames: `assets/[name].js`,
+        chunkFileNames: `assets/[name].js`,
+        assetFileNames: `assets/[name].[ext]`
       }
     }
   }
