@@ -1,6 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, shallowRef, computed, watch } from 'vue';
-import * as Colyseus from "@colyseus/sdk";
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { 
   GREEK_LETTERS, 
   copyPartyCode, 
@@ -13,8 +12,6 @@ import {
   createPartyRoom,
   startPartyBattle
 } from '../scripts/lobby.js';
-// import { MyRoomState } from '../schema/MyRoomState.js';
-// import { PartyState } from '../schema/PartyState.js';
 
 const props = defineProps(['client', 'party', 'partyMembers', 'partyCode', 'room']);
 const emit = defineEmits(['roomJoined', 'partyJoined', 'partyLeft']);

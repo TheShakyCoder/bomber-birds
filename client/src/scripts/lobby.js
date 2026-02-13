@@ -98,3 +98,21 @@ export const startPartyBattle = async (client, joinRoomCallback, createRoomCallb
         throw new Error("Fail to start game: " + e.message);
     }
 };
+
+export const onRoomJoined = (room, currentRoom, gameStarted) => {
+  console.log("Room synced in App:", (room.id || room.roomId));
+  currentRoom.value = room;
+  
+  room.onStateChange((state) => {
+    if (state.gameStarted) {
+      gameStarted.value = true;
+    } else {
+      gameStarted.value = false;
+    }
+  });
+
+  room.onLeave(() => {
+    currentRoom.value = null;
+    gameStarted.value = false;
+  });
+};

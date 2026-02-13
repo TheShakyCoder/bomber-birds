@@ -3,6 +3,7 @@ import { ref, shallowRef } from 'vue';
 import Lobby from './components/Lobby.vue'
 import GameView from './components/GameView.vue'
 import * as Colyseus from "@colyseus/sdk";
+import { onRoomJoined } from './scripts/lobby.js';
 
 const client = new Colyseus.Client('ws://localhost:2567');
 const currentRoom = shallowRef(null);
@@ -12,23 +13,9 @@ const partyMembers = ref({});
 const partyInviteCode = ref('');
 const isJoining = ref(false);
 
-const onRoomJoined = (room) => {
-  console.log("Room synced in App:", (room.id || room.roomId));
-  currentRoom.value = room;
-  
-  room.onStateChange((state) => {
-    if (state.gameStarted) {
-      gameStarted.value = true;
-    } else {
-      gameStarted.value = false;
-    }
-  });
+const handleRoomJoined = (room) => onRoomJoined(room, currentRoom, gameStarted);
 
-  room.onLeave(() => {
-    currentRoom.value = null;
-    gameStarted.value = false;
-  });
-};
+
 
 const joinRoomByLeader = async (roomId, partyId) => {
   if (!roomId) {
@@ -47,7 +34,7 @@ const joinRoomByLeader = async (roomId, partyId) => {
   try {
     console.log("App: Following leader to room", roomId);
     const room = await client.joinById(roomId, { partyId });
-    onRoomJoined(room);
+    onRoomJoined(room, currentRoom, gameStarted);
   } catch (e) {
     console.error("App: Follow leader failed:", e);
   } finally {
@@ -122,7 +109,7 @@ const leaveRoom = () => {
         :partyMembers="partyMembers"
         :partyCode="partyInviteCode"
         :room="currentRoom"
-        @roomJoined="onRoomJoined"
+        @roomJoined="handleRoomJoined"
         @partyJoined="handlePartyJoined"
         @partyLeft="() => { joinedParty = null; partyMembers = {}; partyInviteCode = ''; }"
     />

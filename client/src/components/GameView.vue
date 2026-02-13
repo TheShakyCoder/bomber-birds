@@ -12,6 +12,14 @@ const winnerName = ref(null);
 let engine, scene, camera;
 const meshes = new Map(); // id -> Mesh
 const playerMeshes = new Map(); // sessionId -> Mesh
+let highlightLayer;
+
+const TEAM_COLORS = [
+  new BABYLON.Color3(1, 0.2, 0.2),   // Team 0: Red
+  new BABYLON.Color3(0.2, 0.8, 0.2), // Team 1: Green
+  new BABYLON.Color3(0.2, 0.5, 1.0), // Team 2: Blue
+  new BABYLON.Color3(1.0, 0.9, 0.2)  // Team 3: Yellow
+];
 
 // Reactive state for UI logic
 const playersData = ref({});
@@ -76,6 +84,8 @@ const initBabylon = () => {
 
   const pointLight = new BABYLON.PointLight("pointLight", new BABYLON.Vector3(7, 10, 7), scene);
   pointLight.intensity = 0.5;
+
+  highlightLayer = new BABYLON.HighlightLayer("hl1", scene);
 
   engine.runRenderLoop(() => {
     // Gradual Movement Interpolation
@@ -210,14 +220,21 @@ const createBombMesh = (x, z, key) => {
 
 const createPlayerMesh = (sessionId, player) => {
   const isMe = sessionId === props.room.sessionId;
-  const mesh = BABYLON.MeshBuilder.CreateSphere(`player_${sessionId}`, { diameter: 0.8 }, scene);
+  const diameter = isMe ? 1.0 : 0.8;
+  const mesh = BABYLON.MeshBuilder.CreateSphere(`player_${sessionId}`, { diameter }, scene);
   mesh.position.set(player.x, 0.5, player.z);
   mesh.targetPos = { x: player.x, z: player.z };
 
   const mat = new BABYLON.StandardMaterial(`playerMat_${sessionId}`, scene);
-  mat.diffuseColor = isMe ? new BABYLON.Color3(0, 0.8, 1) : new BABYLON.Color3(1, 0.2, 0.2);
+  const teamColor = TEAM_COLORS[player.team] || new BABYLON.Color3(1, 1, 1);
+  mat.diffuseColor = teamColor;
+  
+  if (isMe) {
+    mat.emissiveColor = teamColor.scale(0.5);
+    highlightLayer.addMesh(mesh, teamColor);
+  }
+  
   mesh.material = mat;
-
   playerMeshes.set(sessionId, mesh);
 
   // Center camera on local player and apply team-based rotation
