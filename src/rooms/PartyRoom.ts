@@ -1,12 +1,11 @@
 import { Room, Client } from "colyseus";
 import { PartyState, PartyMember } from "./schema/PartyState.js";
 
-export class PartyRoom extends Room<PartyState> {
+export class PartyRoom extends Room {
     maxClients = 5;
+    state = new PartyState();
 
     onCreate(options: any) {
-        // 1. Initialize State immediately
-        this.setState(new PartyState());
         
         // 2. Generate and store invite code
         const code = Math.random().toString(36).substring(2, 8).toUpperCase();
