@@ -6,16 +6,21 @@ import {
     defineRoom,
     monitor,
     playground,
-    createRouter,
-    createEndpoint,
     matchMaker,
 } from "colyseus";
+
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 
 /**
  * Import your Room files
  */
 import { MyRoom } from "./rooms/MyRoom.js";
 import { PartyRoom } from "./rooms/PartyRoom.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const server = defineServer({
     /**
@@ -27,44 +32,50 @@ const server = defineServer({
     },
 
     /**
-     * Experimental: Define API routes. Built-in integration with the "playground" and SDK.
-     * 
-     * Usage from SDK: 
-     *   client.http.get("/api/hello").then((response) => {})
-     * 
-     */
-    routes: createRouter({
-        available_rooms: createEndpoint("/rooms", { method: "GET" }, async (ctx) => {
-            return await matchMaker.query({ name: "my_room" });
-        }),
-        party_id: createEndpoint("/party-id/:code", { method: "GET" }, async (ctx) => {
-            const searchCode = ctx.params.code.trim().toUpperCase();
-            const rooms = await matchMaker.query({ name: "party" });
-            console.log(`Searching for party code: [${searchCode}]. Found ${rooms.length} party rooms.`);
-
-            const room = rooms.find(r => {
-                const roomCode = (r.metadata && r.metadata.inviteCode) ? r.metadata.inviteCode.trim().toUpperCase() : "";
-                return roomCode === searchCode;
-            });
-
-            if (room) {
-                console.log(`Found party! RoomId: ${room.roomId}`);
-                return { roomId: room.roomId };
-            } else {
-                console.log(`Party not found for code: [${searchCode}]`);
-                return { error: "Party not found" };
-            }
-        }),
-        api_hello: createEndpoint("/api/hello", { method: "GET", }, async (ctx) => {
-            return { message: "Hello World" }
-        })
-    }),
-
-    /**
      * Bind your custom express routes here:
      * Read more: https://expressjs.com/en/starter/basic-routing.html
      */
     express: (app) => {
+        // Serve static files from the public directory
+        const publicPath = path.resolve(__dirname, "..", "public");
+        app.use(express.static(publicPath));
+
+        app.get("/rooms", async (req, res) => {
+            try {
+                const rooms = await matchMaker.query({ name: "my_room" });
+                res.json(rooms);
+            } catch (e) {
+                res.status(500).json({ error: (e instanceof Error) ? e.message : String(e) });
+            }
+        });
+
+        app.get("/party-id/:code", async (req, res) => {
+            try {
+                const searchCode = req.params.code.trim().toUpperCase();
+                const rooms = await matchMaker.query({ name: "party" });
+                console.log(`Searching for party code: [${searchCode}]. Found ${rooms.length} party rooms.`);
+
+                const room = rooms.find(r => {
+                    const roomCode = (r.metadata && r.metadata.inviteCode) ? r.metadata.inviteCode.trim().toUpperCase() : "";
+                    return roomCode === searchCode;
+                });
+
+                if (room) {
+                    console.log(`Found party! RoomId: ${room.roomId}`);
+                    res.json({ roomId: room.roomId });
+                } else {
+                    console.log(`Party not found for code: [${searchCode}]`);
+                    res.status(404).json({ error: "Party not found" });
+                }
+            } catch (e) {
+                res.status(500).json({ error: (e instanceof Error) ? e.message : String(e) });
+            }
+        });
+
+        app.get("/api/hello", (req, res) => {
+            res.json({ message: "Hello World" });
+        });
+
         app.get("/hi", (req, res) => {
             res.send("It's time to kick ass and chew bubblegum!");
         });
@@ -81,8 +92,14 @@ const server = defineServer({
          * (It is not recommended to expose this route in a production environment)
          */
         if (process.env.NODE_ENV !== "production") {
-            app.use("/", playground());
+            app.use("/playground", playground());
         }
+
+        // Fallback to index.html for SPA routing
+        app.get("*", (req, res) => {
+            const indexFile = path.join(publicPath, "index.html");
+            res.sendFile(indexFile);
+        });
     }
 
 });
