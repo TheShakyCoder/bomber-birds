@@ -40,7 +40,7 @@ const server = defineServer({
         const publicPath = path.resolve(__dirname, "..", "public");
         app.use(express.static(publicPath));
 
-        app.get("/rooms", async (req, res) => {
+        app.get("/api/rooms", async (req, res) => {
             try {
                 const rooms = await matchMaker.query({ name: "my_room" });
                 res.json(rooms);

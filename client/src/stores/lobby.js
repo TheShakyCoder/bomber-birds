@@ -236,7 +236,7 @@ export const useLobbyStore = defineStore('lobby', () => {
 
     const fetchRooms = async () => {
         try {
-            const response = await client.http.get("/rooms");
+            const response = await client.http.get("/api/rooms");
             rooms.value = response.data;
         } catch (e) {
             errorMessage.value = "Failed to fetch rooms: " + e.message;

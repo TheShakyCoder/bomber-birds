@@ -25,5 +25,18 @@ export default defineConfig({
         assetFileNames: `assets/[name].[ext]`
       }
     }
-  }
+  },
+  server: {
+    cors: {
+      origin: [
+        `${process.env.VITE_SERVER_URL}`
+      ]
+    },
+    // respond to all network requests:
+    host: "0.0.0.0",
+    port: process.env.VITE_CLIENT_PORT,
+    strictPort: true,
+    // Defines the origin of the generated asset URLs during development
+    origin: `${process.env.VITE_DOMAIN}:${process.env.VITE_CLIENT_PORT}`,
+  },
 })
