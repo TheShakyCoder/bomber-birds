@@ -5,6 +5,8 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   build: {
+    outDir: '../public',
+    emptyOutDir: true,
     sourcemap: false,
     cssCodeSplit: false, // Combine CSS to save memory during splitting phase
     minify: 'esbuild',
@@ -14,7 +16,10 @@ export default defineConfig({
       maxParallelFileOps: 1,
       cache: false,
       output: {
-        manualChunks: undefined,
+        manualChunks: {
+          'p5-chunk': ['p5'],
+          'colyseus-chunk': ['@colyseus/sdk'],
+        },
         entryFileNames: `assets/[name].js`,
         chunkFileNames: `assets/[name].js`,
         assetFileNames: `assets/[name].[ext]`
