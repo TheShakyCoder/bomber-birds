@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, shallowRef, computed, watch } from 'vue';
 import * as Colyseus from "@colyseus/sdk";
+import { copyPartyCode, pastePartyCode } from '../scripts/lobby';
 // import { MyRoomState } from '../schema/MyRoomState.js';
 // import { PartyState } from '../schema/PartyState.js';
 
@@ -21,28 +22,28 @@ const connectedPlayers = ref({});
 
 // If initialParty/Room exists, we need to sync logic
 onMounted(() => {
-    if (props.party) {
-        handlePartyJoined(props.party);
-    }
-    if (props.room) {
-        setupRoomListeners(props.room);
-    }
+  if (props.party) {
+    handlePartyJoined(props.party);
+  }
+  if (props.room) {
+    setupRoomListeners(props.room);
+  }
 });
 
 watch(() => props.room, (newRoom) => {
-    if (newRoom) {
-        setupRoomListeners(newRoom);
-    }
+  if (newRoom) {
+    setupRoomListeners(newRoom);
+  }
 });
 
 const setupRoomListeners = (room) => {
   if (!room) return;
   console.log("Lobby: Setting up listeners for room", room.id);
-  
+
   room.onStateChange((state) => {
     currentRoomName.value = state.roomName || 'Lobby';
     currentCountdown.value = state.countdown || 0;
-    
+
     const p = {};
     state.players.forEach((player, id) => {
       p[id] = { ready: player.ready };
@@ -52,24 +53,24 @@ const setupRoomListeners = (room) => {
 };
 
 const toggleReady = () => {
-    if (props.room) {
-        props.room.send("ready");
-    }
+  if (props.room) {
+    props.room.send("ready");
+  }
 };
 
 const leaveJoinedRoom = () => {
-    // If we are in a battle, App.vue handles the signaling.
-    // If we are in the Lobby (props.room exists), we should also signal if lead.
-    const isLeader = props.party && props.partyMembers[props.party.sessionId]?.isLeader;
-    
-    if (isLeader && props.party) {
-        console.log("Lobby: Leader leaving pre-battle - Signaling party");
-        props.party.send("leaveGame");
-    }
+  // If we are in a battle, App.vue handles the signaling.
+  // If we are in the Lobby (props.room exists), we should also signal if lead.
+  const isLeader = props.party && props.partyMembers[props.party.sessionId]?.isLeader;
 
-    if (props.room) {
-        props.room.leave();
-    }
+  if (isLeader && props.party) {
+    console.log("Lobby: Leader leaving pre-battle - Signaling party");
+    props.party.send("leaveGame");
+  }
+
+  if (props.room) {
+    props.room.leave();
+  }
 };
 
 const fetchRooms = async () => {
@@ -111,7 +112,7 @@ const isPartyLeader = () => {
 
 const createRoom = async () => {
   console.log("createRoom called. Party:", props.party?.roomId, "Is Leader:", isPartyLeader());
-  
+
   if (props.party && !isPartyLeader()) {
     console.warn("Block: Non-leader attempted room creation");
     errorMessage.value = "Only the party leader can create a room.";
@@ -122,16 +123,16 @@ const createRoom = async () => {
   if (!roomName) {
     roomName = greekLetters[Math.floor(Math.random() * greekLetters.length)];
   }
-  
+
   try {
     const options = { name: roomName };
     if (props.party) {
       options.partyId = props.party.roomId;
     }
-    
+
     const room = await props.client.create("my_room", options);
     emit('roomJoined', room);
-    
+
     // Lead-Follow: Signal party to join if leader
     if (isPartyLeader()) {
       props.party.send("startGame", { roomId: room.roomId });
@@ -177,6 +178,15 @@ const createParty = async () => {
   }
 };
 
+const copyParty = async () => {
+  copySuccess.value = await copyPartyCode(props.partyCode, errorMessage);
+  setTimeout(() => copySuccess.value = false, 2000);
+}
+
+const pasteParty = async () => {
+  inviteToJoin.value = await pastePartyCode(errorMessage);
+}
+
 const joinParty = async () => {
   if (!inviteToJoin.value) return;
   try {
@@ -184,13 +194,13 @@ const joinParty = async () => {
     errorMessage.value = "Joining party...";
     // Resolve invite code to actual roomId first
     const response = await props.client.http.get(`/party-id/${cleanCode}`);
-    
+
     if (response.data && response.data.roomId) {
-        const room = await props.client.joinById(response.data.roomId, {});
-        handlePartyJoined(room);
-        errorMessage.value = "";
+      const room = await props.client.joinById(response.data.roomId, {});
+      handlePartyJoined(room);
+      errorMessage.value = "";
     } else {
-        errorMessage.value = (response.data && response.data.error) || "Failed to find party.";
+      errorMessage.value = (response.data && response.data.error) || "Failed to find party.";
     }
   } catch (e) {
     errorMessage.value = "Failed to join party: " + e.message;
@@ -212,48 +222,26 @@ const startPartyGame = async () => {
   if (props.party) {
     errorMessage.value = "Finding game room for party...";
     try {
-        const response = await props.client.http.get("/rooms");
-        if (response.data.length > 0) {
-            await joinRoom(response.data[0].roomId);
-        } else {
-            await createRoom();
-        }
-        errorMessage.value = "";
+      const response = await props.client.http.get("/rooms");
+      if (response.data.length > 0) {
+        await joinRoom(response.data[0].roomId);
+      } else {
+        await createRoom();
+      }
+      errorMessage.value = "";
     } catch (e) {
-        errorMessage.value = "Fail to start game: " + e.message;
+      errorMessage.value = "Fail to start game: " + e.message;
     }
   }
 };
 
 const togglePartyReady = () => {
-    if (props.party) {
-        props.party.send("toggleReady");
-    }
+  if (props.party) {
+    props.party.send("toggleReady");
+  }
 }
 
-const copyPartyCode = async () => {
-    if (props.partyCode) {
-        try {
-            await navigator.clipboard.writeText(props.partyCode);
-            copySuccess.value = true;
-            setTimeout(() => copySuccess.value = false, 2000);
-        } catch (err) {
-            console.error('Failed to copy: ', err);
-        }
-    }
-};
 
-const pasteInviteCode = async () => {
-    try {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-            inviteToJoin.value = text.trim().toUpperCase();
-        }
-    } catch (err) {
-        console.error('Failed to paste: ', err);
-        errorMessage.value = "Clipboard access denied. Please paste manually.";
-    }
-};
 </script>
 
 <template>
@@ -288,14 +276,11 @@ const pasteInviteCode = async () => {
         </div>
 
         <div class="ready-actions">
-          <button 
-            @click="toggleReady" 
-            class="btn-ready" 
-            :class="{ 'is-ready': connectedPlayers[joinedRoom.sessionId]?.ready }"
-          >
+          <button @click="toggleReady" class="btn-ready"
+            :class="{ 'is-ready': connectedPlayers[joinedRoom.sessionId]?.ready }">
             {{ connectedPlayers[joinedRoom.sessionId]?.ready ? 'I am Ready!' : 'Ready Up' }}
           </button>
-          
+
           <div v-if="currentCountdown > 0" class="countdown-timer">
             <span class="countdown-label">Battle starts in:</span>
             <span class="countdown-value">{{ currentCountdown }}</span>
@@ -307,60 +292,57 @@ const pasteInviteCode = async () => {
       <div v-else class="room-browser">
         <!-- Party System Section -->
         <div class="party-section">
-            <div v-if="party" class="joined-party">
-                <div class="party-header">
-                    <h3>My Party: 
-                        <div class="invite-container">
-                            <code class="invite-code">{{ partyCode }}</code>
-                            <button @click="copyPartyCode" class="btn-copy" :class="{ 'is-copied': copySuccess }">
-                                {{ copySuccess ? 'COPIED!' : 'COPY' }}
-                            </button>
-                        </div>
-                    </h3>
-                    <button @click="leaveParty" class="btn-ghost btn-sm">Leave Party</button>
+          <div v-if="party" class="joined-party">
+            <div class="party-header">
+              <h3>My Party:
+                <div class="invite-container">
+                  <code class="invite-code">{{ partyCode }}</code>
+                  <button @click="copyParty" class="btn-copy" :class="{ 'is-copied': copySuccess }">
+                    {{ copySuccess ? 'COPIED!' : 'COPY' }}
+                  </button>
                 </div>
-                
-                <div class="party-members-list">
-                    <div v-for="(member, id) in partyMembers" :key="id" class="party-member">
-                        <span class="member-name">
-                            {{ id === party.sessionId ? 'You' : 'Member ' + id.substring(0, 4) }}
-                            <span v-if="member.isLeader" class="leader-badge">Leader</span>
-                        </span>
-                        <span class="ready-dot" :class="{ 'is-ready': member.ready }"></span>
-                    </div>
-                </div>
+              </h3>
+              <button @click="leaveParty" class="btn-ghost btn-sm">Leave Party</button>
+            </div>
 
-                <div class="party-actions">
-                    <button @click="togglePartyReady" class="btn-ready-sm" :class="{ 'is-ready': partyMembers[party.sessionId]?.ready }">
-                        {{ partyMembers[party.sessionId]?.ready ? 'Ready' : 'Not Ready' }}
-                    </button>
-                    <button v-if="partyMembers[party.sessionId]?.isLeader" @click="startPartyGame" class="btn-primary">
-                        Find Game for Party
-                    </button>
-                </div>
+            <div class="party-members-list">
+              <div v-for="(member, id) in partyMembers" :key="id" class="party-member">
+                <span class="member-name">
+                  {{ id === party.sessionId ? 'You' : 'Member ' + id.substring(0, 4) }}
+                  <span v-if="member.isLeader" class="leader-badge">Leader</span>
+                </span>
+                <span class="ready-dot" :class="{ 'is-ready': member.ready }"></span>
+              </div>
             </div>
-            
-            <div v-else class="party-setup">
-                <button @click="createParty" class="btn-primary">+ Create Party</button>
-                <div class="join-party-form">
-                    <div class="input-with-paste">
-                        <input v-model="inviteToJoin" placeholder="Enter Party Code..." @keyup.enter="joinParty" />
-                        <button @click="pasteInviteCode" class="btn-paste" title="Paste from clipboard">PASTE</button>
-                    </div>
-                    <button @click="joinParty" class="btn-join-sm">Join Party</button>
-                </div>
+
+            <div class="party-actions">
+              <button @click="togglePartyReady" class="btn-ready-sm"
+                :class="{ 'is-ready': partyMembers[party.sessionId]?.ready }">
+                {{ partyMembers[party.sessionId]?.ready ? 'Ready' : 'Not Ready' }}
+              </button>
+              <button v-if="partyMembers[party.sessionId]?.isLeader" @click="startPartyGame" class="btn-primary">
+                Find Game for Party
+              </button>
             </div>
+          </div>
+
+          <div v-else class="party-setup">
+            <button @click="createParty" class="btn-primary">+ Create Party</button>
+            <div class="join-party-form">
+              <div class="input-with-paste">
+                <input v-model="inviteToJoin" placeholder="Enter Party Code..." @keyup.enter="joinParty" />
+                <button @click="pasteParty" class="btn-paste" title="Paste from clipboard">PASTE</button>
+              </div>
+              <button @click="joinParty" class="btn-join-sm">Join Party</button>
+            </div>
+          </div>
         </div>
 
         <div class="browser-header">
           <h2>Available Rooms</h2>
-          <button 
-            @click="createRoom" 
-            class="btn-primary" 
-            v-if="!isCreating && (!party || (party && isPartyLeader()))"
+          <button @click="createRoom" class="btn-primary" v-if="!isCreating && (!party || (party && isPartyLeader()))"
             :disabled="party && !isPartyLeader()"
-            :title="party && !isPartyLeader() ? 'Only party leaders can create rooms' : ''"
-          >
+            :title="party && !isPartyLeader() ? 'Only party leaders can create rooms' : ''">
             + Create Room
           </button>
         </div>
@@ -383,12 +365,9 @@ const pasteInviteCode = async () => {
             </div>
             <div class="room-stats">
               <span class="player-count">{{ room.clients }} / {{ room.maxClients }}</span>
-              <button 
-                @click="joinRoom(room.roomId)" 
-                class="btn-join"
+              <button @click="joinRoom(room.roomId)" class="btn-join"
                 :disabled="room.clients >= room.maxClients || (party && !isPartyLeader())"
-                :title="party && !isPartyLeader() ? 'Only party leaders can join' : ''"
-              >
+                :title="party && !isPartyLeader() ? 'Only party leaders can join' : ''">
                 Join
               </button>
             </div>
@@ -423,8 +402,15 @@ const pasteInviteCode = async () => {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 header {
@@ -486,8 +472,15 @@ h2 {
 }
 
 @keyframes slideIn {
-  from { opacity: 0; scale: 0.95; }
-  to { opacity: 1; scale: 1; }
+  from {
+    opacity: 0;
+    scale: 0.95;
+  }
+
+  to {
+    opacity: 1;
+    scale: 1;
+  }
 }
 
 input {
@@ -618,7 +611,9 @@ input:focus {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty-state {
@@ -658,303 +653,309 @@ input:focus {
 
 /* Ready Room Styles */
 .ready-room {
-    animation: fadeIn 0.4s ease-out;
+  animation: fadeIn 0.4s ease-out;
 }
 
 .ready-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
 }
 
 .room-title .label {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    color: #64748b;
-    font-weight: 700;
-    letter-spacing: 0.1em;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.1em;
 }
 
 .room-title h2 {
-    margin: 0;
-    font-size: 1.5rem;
-    color: #3b82f6;
+  margin: 0;
+  font-size: 1.5rem;
+  color: #3b82f6;
 }
 
 .players-list {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 16px;
-    padding: 8px;
-    margin-bottom: 32px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 16px;
+  padding: 8px;
+  margin-bottom: 32px;
 }
 
 .player-ready-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .player-ready-item:last-child {
-    border-bottom: none;
+  border-bottom: none;
 }
 
 .ready-status {
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
 }
 
 .ready-status.is-ready {
-    background: rgba(16, 185, 129, 0.2);
-    color: #10b981;
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
 }
 
 .ready-actions {
-    text-align: center;
+  text-align: center;
 }
 
 .btn-ready {
-    width: 100%;
-    padding: 16px;
-    border-radius: 12px;
-    border: none;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    font-size: 1.1rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.3s;
+  width: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s;
 }
 
 .btn-ready.is-ready {
-    background: #10b981;
-    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+  background: #10b981;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
 }
 
 .waiting-hint {
-    margin-top: 16px;
-    font-size: 0.875rem;
-    color: #64748b;
+  margin-top: 16px;
+  font-size: 0.875rem;
+  color: #64748b;
 }
 
 .countdown-timer {
-    margin-top: 24px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    animation: pulse 1s infinite alternate;
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  animation: pulse 1s infinite alternate;
 }
 
 .countdown-label {
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #fca5a5;
-    font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #fca5a5;
+  font-weight: 600;
 }
 
 .countdown-value {
-    font-size: 3rem;
-    font-weight: 800;
-    color: #ef4444;
-    text-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+  font-size: 3rem;
+  font-weight: 800;
+  color: #ef4444;
+  text-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
 }
 
 @keyframes pulse {
-    from { transform: scale(1); opacity: 0.8; }
-    to { transform: scale(1.05); opacity: 1; }
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+
+  to {
+    transform: scale(1.05);
+    opacity: 1;
+  }
 }
 
 /* Party System Styles */
 .party-section {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 20px;
-    padding: 24px;
-    margin-bottom: 32px;
-    border: 1px solid rgba(59, 130, 246, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 32px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .party-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
 }
 
 .party-header h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    color: #94a3b8;
+  margin: 0;
+  font-size: 1.1rem;
+  color: #94a3b8;
 }
 
 .invite-container {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
 }
 
 .invite-code {
-    background: #098242;
-    color: white;
-    padding: 4px 12px;
-    border-radius: 6px;
-    font-family: monospace;
-    font-size: 2rem;
-    box-shadow: 0 0 15px rgba(9, 130, 66, 0.4);
+  background: #098242;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 2rem;
+  box-shadow: 0 0 15px rgba(9, 130, 66, 0.4);
 }
 
 .btn-copy {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .btn-copy:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 .btn-copy.is-copied {
-    background: #098242;
-    border-color: #098242;
-    box-shadow: 0 0 10px rgba(9, 130, 66, 0.5);
+  background: #098242;
+  border-color: #098242;
+  box-shadow: 0 0 10px rgba(9, 130, 66, 0.5);
 }
 
 .party-members-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
 }
 
 .party-member {
-    background: rgba(0, 0, 0, 0.3);
-    padding: 8px 16px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.3);
+  padding: 8px 16px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .member-name {
-    font-size: 0.875rem;
-    font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .leader-badge {
-    font-size: 0.7rem;
-    background: #f59e0b;
-    color: #000;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: 800;
-    margin-left: 6px;
+  font-size: 0.7rem;
+  background: #f59e0b;
+  color: #000;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 800;
+  margin-left: 6px;
 }
 
 .ready-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #64748b;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
 }
 
 .ready-dot.is-ready {
-    background: #10b981;
-    box-shadow: 0 0 8px #10b981;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
 }
 
 .party-actions {
-    display: flex;
-    gap: 12px;
+  display: flex;
+  gap: 12px;
 }
 
 .btn-ready-sm {
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 8px 20px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-weight: 600;
-    transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 8px 20px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
 }
 
 .btn-ready-sm.is-ready {
-    background: #10b981;
-    border-color: #10b981;
+  background: #10b981;
+  border-color: #10b981;
 }
 
 .party-setup {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .join-party-form {
-    display: flex;
-    gap: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .join-party-form input {
-    margin-bottom: 0;
-    flex: 1;
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
+  margin-bottom: 0;
+  flex: 1;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .input-with-paste {
-    display: flex;
-    flex: 1;
+  display: flex;
+  flex: 1;
 }
 
 .btn-paste {
-    background: #475569;
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-left: none;
-    padding: 0 12px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    cursor: pointer;
-    border-top-right-radius: 8px;
-    border-bottom-right-radius: 8px;
-    transition: all 0.2s;
+  background: #475569;
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: none;
+  padding: 0 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  transition: all 0.2s;
 }
 
 .btn-paste:hover {
-    background: #64748b;
+  background: #64748b;
 }
 
 .btn-join-sm {
-    background: #334155;
-    color: white;
-    border: none;
-    padding: 0 20px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-weight: 600;
+  background: #334155;
+  color: white;
+  border: none;
+  padding: 0 20px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .btn-sm {
-    padding: 4px 12px;
-    font-size: 0.8rem;
+  padding: 4px 12px;
+  font-size: 0.8rem;
 }
-
 </style>
