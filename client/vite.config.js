@@ -7,15 +7,15 @@ export default defineConfig({
   build: {
     sourcemap: false,
     cssCodeSplit: true,
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-      },
-    },
+    minify: 'esbuild',
+    reportCompressedSize: false,
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
-      maxParallelFileOps: 2,
+      maxParallelFileOps: 1,
       cache: false,
+      output: {
+        manualChunks: undefined
+      }
     }
   }
 })
