@@ -80,6 +80,15 @@ const initBabylon = () => {
   pointLight.intensity = 0.5;
 
   engine.runRenderLoop(() => {
+    // Gradual Movement Interpolation
+    const lerpSpeed = 0.2; // Adjust for smoothness vs responsiveness
+    playerMeshes.forEach((mesh, sessionId) => {
+      if (mesh.targetPos) {
+        mesh.position.x = BABYLON.Scalar.Lerp(mesh.position.x, mesh.targetPos.x, lerpSpeed);
+        mesh.position.z = BABYLON.Scalar.Lerp(mesh.position.z, mesh.targetPos.z, lerpSpeed);
+      }
+    });
+
     scene.render();
   });
 
@@ -136,11 +145,10 @@ const setupRoomListeners = () => {
           createPlayerMesh(sessionId, player);
         }
         
-        // Pull-based sync: Update mesh every state change
+        // Push target position to mesh for interpolation in render loop
         const mesh = playerMeshes.get(sessionId);
         if (mesh) {
-          mesh.position.x = player.x;
-          mesh.position.z = player.z;
+          mesh.targetPos = { x: player.x, z: player.z };
           mesh.isVisible = player.alive;
         }
       });
@@ -206,6 +214,7 @@ const createPlayerMesh = (sessionId, player) => {
   const isMe = sessionId === props.room.sessionId;
   const mesh = BABYLON.MeshBuilder.CreateSphere(`player_${sessionId}`, { diameter: 0.8 }, scene);
   mesh.position.set(player.x, 0.5, player.z);
+  mesh.targetPos = { x: player.x, z: player.z };
 
   const mat = new BABYLON.StandardMaterial(`playerMat_${sessionId}`, scene);
   mat.diffuseColor = isMe ? new BABYLON.Color3(0, 0.8, 1) : new BABYLON.Color3(1, 0.2, 0.2);
@@ -224,7 +233,7 @@ const createPlayerMesh = (sessionId, player) => {
     if (player.team === 3) alpha = 0;
 
     camera.alpha = alpha;
-    camera.beta = Math.PI / 4;
+    camera.beta = Math.PI / 5;
     camera.radius = 12;
 
     // Lock rotation at this team-specific angle

@@ -211,7 +211,7 @@ export class MyRoom extends Room {
         if (player.team === -1) player.team = 0;
     }
 
-    const size = 45;
+    const size = 25;
     const spawnPoints = [
       { x: 1, z: 1 },
       { x: size - 2, z: size - 2 },
