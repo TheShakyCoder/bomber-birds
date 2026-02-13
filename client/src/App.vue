@@ -10,6 +10,7 @@ const gameStarted = ref(false);
 const joinedParty = shallowRef(null);
 const partyMembers = ref({});
 const partyInviteCode = ref('');
+const isJoining = ref(false);
 
 const onRoomJoined = (room) => {
   console.log("Room synced in App:", (room.id || room.roomId));
@@ -35,18 +36,30 @@ const joinRoomByLeader = async (roomId, partyId) => {
     return;
   }
   
+  if (isJoining.value) {
+    console.log("App: Join already in progress, skipping duplicate request");
+    return;
+  }
+
   if (currentRoom.value && (currentRoom.value.id === roomId || currentRoom.value.roomId === roomId)) return;
   
+  isJoining.value = true;
   try {
     console.log("App: Following leader to room", roomId);
     const room = await client.joinById(roomId, { partyId });
     onRoomJoined(room);
   } catch (e) {
     console.error("App: Follow leader failed:", e);
+  } finally {
+    isJoining.value = false;
   }
 };
 
 const handlePartyJoined = (room) => {
+    if (joinedParty.value && joinedParty.value.id === room.id) {
+        console.log("App: Already joined this party instance, skipping listener setup");
+        return;
+    }
     joinedParty.value = room;
     
     if (room.metadata?.inviteCode) partyInviteCode.value = room.metadata.inviteCode;
