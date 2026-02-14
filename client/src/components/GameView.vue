@@ -127,6 +127,7 @@ const setupRoomListeners = () => {
   const seenGrid = new Set();
   const seenPlayers = new Set();
   const seenBombs = new Set();
+  const seenBases = new Set();
 
   room.onStateChange((state) => {
     if (state.winnerId) {
@@ -139,13 +140,32 @@ const setupRoomListeners = () => {
         if (!seenGrid.has(key)) {
           seenGrid.add(key);
           const [x, z] = key.split(',').map(Number);
-          createBlockMesh(x, z, block.type, key, block.team, block.isTurret);
+          createBlockMesh(x, z, block.type, key, -1, false);
         }
       });
       // Cleanup grid (if blocks can be removed)
       for (const key of seenGrid) {
         if (!state.grid.has(key)) {
           seenGrid.delete(key);
+          const mesh = meshes.get(key);
+          if (mesh) { mesh.dispose(); meshes.delete(key); }
+        }
+      }
+    }
+
+    // Manual sync for Bases
+    if (state.bases) {
+      state.bases.forEach((base, key) => {
+        if (!seenBases.has(key)) {
+          seenBases.add(key);
+          const [x, z] = key.split(',').map(Number);
+          createBlockMesh(x, z, "base", key, base.team, base.isTurret);
+        }
+      });
+      // Cleanup bases
+      for (const key of seenBases) {
+        if (!state.bases.has(key)) {
+          seenBases.delete(key);
           const mesh = meshes.get(key);
           if (mesh) { mesh.dispose(); meshes.delete(key); }
         }

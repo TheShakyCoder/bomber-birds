@@ -12,8 +12,11 @@ export class Player extends Schema {
 }
 
 export class Block extends Schema {
-    @type("string") type: string = "destructible"; // "indestructible" | "destructible" | "base"
-    @type("number") health: number = 100;
+    @type("string") type: string = "destructible"; // "indestructible" | "destructible"
+}
+
+export class Base extends Schema {
+    @type("number") health: number = 200;
     @type("number") team: number = -1;
     @type("boolean") isTurret: boolean = false;
 }
@@ -28,6 +31,7 @@ export class Bomb extends Schema {
 export class MyRoomState extends Schema {
     @type({ map: Player }) players = new MapSchema<Player>();
     @type({ map: Block }) grid = new MapSchema<Block>(); // Keyed by "x,z"
+    @type({ map: Base }) bases = new MapSchema<Base>(); // Keyed by "x,z"
     @type({ map: Bomb }) bombs = new MapSchema<Bomb>(); // Keyed by "x,z"
     @type("string") winnerId: string = "";
     @type("boolean") gameStarted: boolean = false;

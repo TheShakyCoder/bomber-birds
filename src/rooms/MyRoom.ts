@@ -1,5 +1,5 @@
 import { Room, Client, CloseCode } from "colyseus";
-import { MyRoomState, Player, Block, Bomb } from "./schema/MyRoomState.js";
+import { MyRoomState, Player, Block, Bomb, Base } from "./schema/MyRoomState.js";
 import { exit } from "process";
 
 const GREEK_LETTERS = [
@@ -51,17 +51,17 @@ export class MyRoom extends Room {
         const nextX = player.x + (message.dx || 0);
         const nextZ = player.z + (message.dz || 0);
 
-        // Simple collision detection (grid blocks or bombs)
+        // Simple collision detection (grid blocks or bombs or enemy bases)
         const block = this.state.grid.get(`${nextX},${nextZ}`);
         const bomb = this.state.bombs.get(`${nextX},${nextZ}`);
+        const base = this.state.bases.get(`${nextX},${nextZ}`);
 
         let canMove = !bomb;
         if (block) {
-          if (block.type === "base") {
-            canMove = block.team === player.team;
-          } else {
-            canMove = false;
-          }
+          canMove = false;
+        }
+        if (base) {
+          canMove = base.team === player.team;
         }
 
         if (canMove) {
@@ -97,8 +97,8 @@ export class MyRoom extends Room {
     const now = Date.now();
     this.state.players.forEach((player, sessionId) => {
       if (player.alive && player.health < 100) {
-        const block = this.state.grid.get(`${Math.round(player.x)},${Math.round(player.z)}`);
-        if (block?.type === "base" && block?.team === player.team) {
+        const base = this.state.bases.get(`${Math.round(player.x)},${Math.round(player.z)}`);
+        if (base && base.team === player.team) {
           player.health = Math.min(100, player.health + (10 * deltaTime / 1000));
         }
       }
@@ -107,8 +107,8 @@ export class MyRoom extends Room {
     if (!this.state.gameStarted) {
       return;
     }
-    for (const [key, block] of this.state.grid) {
-      if (!block.isTurret) {
+    for (const [key, base] of this.state.bases) {
+      if (!base.isTurret) {
         continue;
       }
       const lastFired = this.turretLastFired.get(key) || 0;
@@ -116,7 +116,7 @@ export class MyRoom extends Room {
         continue; // 4 second cooldown
       }
       const [tx, tz] = key.split(',').map(Number);
-      this.turretFire(key, tx, tz, block.team);
+      this.turretFire(key, tx, tz, base.team);
     }
   }
 
@@ -197,15 +197,18 @@ export class MyRoom extends Room {
     const placeBase = (startX: number, startZ: number, team: number) => {
       for (let x = startX; x < startX + 3; x++) {
         for (let z = startZ; z < startZ + 3; z++) {
-          const b = new Block();
-          b.type = "base";
-          b.team = team;
-          b.health = 200; // Bases are tougher
           if (x === startX + 1 && z === startZ + 1) {
-            b.isTurret = true;
+            const b = new Base();
+            b.team = team;
             b.health = 500; // Turrets are even tougher
+            b.isTurret = true;
+            this.state.bases.set(`${x},${z}`, b);
+          } else {
+            const b = new Base();
+            b.team = team;
+            b.health = 200; // Bases are tougher
+            this.state.bases.set(`${x},${z}`, b);
           }
-          this.state.grid.set(`${x},${z}`, b);
         }
       }
     };
@@ -255,14 +258,15 @@ export class MyRoom extends Room {
 
       // Destroy blocks
       const block = this.state.grid.get(key);
-      if (block) {
-        if (block.type === "destructible") {
-          this.state.grid.delete(key);
-        } else if (block.type === "base") {
-          block.health -= 50;
-          if (block.health <= 0) {
-            this.state.grid.delete(key);
-          }
+      if (block && block.type === "destructible") {
+        this.state.grid.delete(key);
+      }
+
+      const base = this.state.bases.get(key);
+      if (base) {
+        base.health -= 50;
+        if (base.health <= 0) {
+          this.state.bases.delete(key);
         }
       }
 
