@@ -88,10 +88,26 @@ const initBabylon = () => {
   highlightLayer = new BABYLON.HighlightLayer("hl1", scene);
 
   engine.runRenderLoop(() => {
-    // Gradual Movement Interpolation
     const lerpSpeed = 0.2; // Adjust for smoothness vs responsiveness
+    const rotLerpSpeed = 0.15;
+
     playerMeshes.forEach((mesh, sessionId) => {
       if (mesh.targetPos) {
+        // Calculate movement vector
+        const dx = mesh.targetPos.x - mesh.position.x;
+        const dz = mesh.targetPos.z - mesh.position.z;
+
+        // Only rotate if there's significant movement
+        if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
+          const targetRotation = Math.atan2(dx, dz);
+          
+          // Smooth rotation interpolation
+          let diff = targetRotation - mesh.rotation.y;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          mesh.rotation.y += diff * rotLerpSpeed;
+        }
+
         mesh.position.x = BABYLON.Scalar.Lerp(mesh.position.x, mesh.targetPos.x, lerpSpeed);
         mesh.position.z = BABYLON.Scalar.Lerp(mesh.position.z, mesh.targetPos.z, lerpSpeed);
       }
@@ -265,8 +281,9 @@ const createBombMesh = (x, z, key) => {
 
 const createPlayerMesh = (sessionId, player) => {
   const isMe = sessionId === props.room.sessionId;
-  const diameter = isMe ? 1.0 : 0.8;
-  const mesh = BABYLON.MeshBuilder.CreateSphere(`player_${sessionId}`, { diameter }, scene);
+  
+  // Create a parent node for the animal
+  const mesh = new BABYLON.TransformNode(`player_${sessionId}`, scene);
   mesh.position.set(player.x, 0.5, player.z);
   mesh.targetPos = { x: player.x, z: player.z };
 
@@ -275,11 +292,62 @@ const createPlayerMesh = (sessionId, player) => {
   mat.diffuseColor = teamColor;
   
   if (isMe) {
-    mat.emissiveColor = teamColor.scale(0.5);
-    highlightLayer.addMesh(mesh, teamColor);
+    mat.emissiveColor = teamColor.scale(0.3);
   }
-  
-  mesh.material = mat;
+
+  // Construct animal based on team
+  let body;
+  if (player.team === 0) { // Red -> Pig
+    body = BABYLON.MeshBuilder.CreateBox("body", { width: 0.6, height: 0.5, depth: 0.8 }, scene);
+    const head = BABYLON.MeshBuilder.CreateBox("head", { size: 0.4 }, scene);
+    head.parent = body;
+    head.position.z = 0.45;
+    head.position.y = 0.1;
+    const snout = BABYLON.MeshBuilder.CreateBox("snout", { width: 0.2, height: 0.15, depth: 0.1 }, scene);
+    snout.parent = head;
+    snout.position.z = 0.25;
+  } else if (player.team === 1) { // Green -> Frog
+    body = BABYLON.MeshBuilder.CreateBox("body", { width: 0.7, height: 0.4, depth: 0.6 }, scene);
+    const eyeL = BABYLON.MeshBuilder.CreateSphere("eyeL", { diameter: 0.25 }, scene);
+    eyeL.parent = body;
+    eyeL.position.set(-0.25, 0.25, 0.2);
+    const eyeR = BABYLON.MeshBuilder.CreateSphere("eyeR", { diameter: 0.25 }, scene);
+    eyeR.parent = body;
+    eyeR.position.set(0.25, 0.25, 0.2);
+  } else if (player.team === 2) { // Blue -> Cat
+    body = BABYLON.MeshBuilder.CreateBox("body", { width: 0.5, height: 0.5, depth: 0.7 }, scene);
+    const head = BABYLON.MeshBuilder.CreateBox("head", { size: 0.4 }, scene);
+    head.parent = body;
+    head.position.z = 0.35;
+    head.position.y = 0.1;
+    const earL = BABYLON.MeshBuilder.CreateCylinder("earL", { diameterTop: 0, diameterBottom: 0.15, height: 0.2 }, scene);
+    earL.parent = head;
+    earL.position.set(-0.15, 0.25, 0);
+    const earR = BABYLON.MeshBuilder.CreateCylinder("earR", { diameterTop: 0, diameterBottom: 0.15, height: 0.2 }, scene);
+    earR.parent = head;
+    earR.position.set(0.15, 0.25, 0);
+  } else { // Team 3: Yellow -> Bird
+    body = BABYLON.MeshBuilder.CreateBox("body", { width: 0.4, height: 0.5, depth: 0.5 }, scene);
+    const head = BABYLON.MeshBuilder.CreateSphere("head", { diameter: 0.35 }, scene);
+    head.parent = body;
+    head.position.y = 0.3;
+    head.position.z = 0.1;
+    const beak = BABYLON.MeshBuilder.CreateCylinder("beak", { diameterTop: 0, diameterBottom: 0.15, height: 0.2 }, scene);
+    beak.parent = head;
+    beak.position.z = 0.2;
+    beak.rotation.x = Math.PI / 2;
+  }
+
+  body.parent = mesh;
+  body.material = mat;
+  body.getChildMeshes().forEach(m => m.material = mat);
+
+  if (isMe) {
+    mesh.scaling.scaleInPlace(1.2);
+    highlightLayer.addMesh(body, teamColor);
+    body.getChildMeshes().forEach(m => highlightLayer.addMesh(m, teamColor));
+  }
+
   playerMeshes.set(sessionId, mesh);
 
   // Center camera on local player and apply team-based rotation
