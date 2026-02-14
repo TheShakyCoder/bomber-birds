@@ -27,20 +27,7 @@ export class MyRoom extends Room {
       if (!this.state.gameStarted) return;
       const player = this.state.players.get(client.sessionId);
       if (player && player.alive) {
-        const x = Math.round(player.x);
-        const z = Math.round(player.z);
-        const bombKey = `${x},${z}`;
-
-        if (!this.state.bombs.has(bombKey)) {
-          const bomb = new Bomb();
-          bomb.x = x;
-          bomb.z = z;
-          bomb.ownerId = client.sessionId;
-          bomb.team = player.team;
-          this.state.bombs.set(bombKey, bomb);
-
-          this.clock.setTimeout(() => this.explode(x, z), 3000);
-        }
+        this.placeBombInternal(player, client.sessionId);
       }
     });
 
@@ -87,6 +74,17 @@ export class MyRoom extends Room {
       }
     });
 
+    this.onMessage("addBot", (client) => {
+      if (this.state.gameStarted) return;
+      if (this.state.players.size >= 20) return;
+
+      const player = this.state.players.get(client.sessionId);
+      if (player) {
+        const botId = `bot_${Math.random().toString(36).substr(2, 9)}`;
+        this.addBot(botId, player.team);
+      }
+    });
+
     this.initGrid();
 
     // Set simulation interval for health recharge
@@ -107,6 +105,14 @@ export class MyRoom extends Room {
     if (!this.state.gameStarted) {
       return;
     }
+
+    // Bot AI
+    this.state.players.forEach((player, sessionId) => {
+      if (player.isBot && player.alive) {
+        this.updateBot(player, sessionId);
+      }
+    });
+
     for (const [key, base] of this.state.bases) {
       if (!base.isTurret) {
         continue;
@@ -153,13 +159,105 @@ export class MyRoom extends Room {
     }
   }
 
+  addBot(sessionId: string, team: number) {
+    const player = new Player();
+    player.team = team;
+    player.isBot = true;
+    player.ready = true;
+    player.loaded = true;
+
+    // Reuse spawn formation logic
+    let teamIndex = 0;
+    this.state.players.forEach(p => {
+      if (p.team === team) teamIndex++;
+    });
+
+    const size = 25;
+    const formation = [
+      { up: 4, right: 0 }, { up: 4, right: 2 }, { up: 4, right: 4 },
+      { up: 2, right: 4 }, { up: 0, right: 4 }
+    ];
+    const offset = formation[teamIndex % formation.length];
+
+    if (team === 0) { player.x = 1 + offset.right; player.z = 1 + offset.up; }
+    else if (team === 1) { player.x = (size - 2) - offset.right; player.z = (size - 2) - offset.up; }
+    else if (team === 2) { player.x = 1 + offset.up; player.z = (size - 2) - offset.right; }
+    else if (team === 3) { player.x = (size - 2) - offset.up; player.z = 1 + offset.right; }
+
+    this.state.players.set(sessionId, player);
+    this.checkAllReady();
+  }
+
+  updateBot(bot: Player, sessionId: string) {
+    if (!bot.alive) return;
+
+    // Very simple Bot AI: move towards nearest enemy or bomb if close
+    let nearestEnemy: Player | null = null;
+    let minDistance = 100;
+
+    this.state.players.forEach((p, id) => {
+      if (p.alive && p.team !== bot.team) {
+        const dist = Math.sqrt(Math.pow(p.x - bot.x, 2) + Math.pow(p.z - bot.z, 2));
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestEnemy = p;
+        }
+      }
+    });
+
+    if (nearestEnemy) {
+      const dx = nearestEnemy.x - bot.x;
+      const dz = nearestEnemy.z - bot.z;
+      const step = 0.5;
+
+      let moveX = 0;
+      let moveZ = 0;
+
+      if (Math.abs(dx) > Math.abs(dz)) moveX = dx > 0 ? step : -step;
+      else moveZ = dz > 0 ? step : -step;
+
+      const nextX = bot.x + moveX;
+      const nextZ = bot.z + moveZ;
+
+      const block = this.state.grid.get(`${nextX},${nextZ}`);
+      const bomb = this.state.bombs.get(`${nextX},${nextZ}`);
+      const base = this.state.bases.get(`${nextX},${nextZ}`);
+
+      if (!bomb && !block && (!base || base.team === bot.team)) {
+        bot.x = nextX;
+        bot.z = nextZ;
+      }
+
+      // Randomly place bomb if near enemy
+      if (minDistance < 2 && Math.random() < 0.1) {
+        this.placeBombInternal(bot, sessionId);
+      }
+    }
+  }
+
+  placeBombInternal(player: Player, ownerId: string) {
+    const x = Math.round(player.x);
+    const z = Math.round(player.z);
+    const bombKey = `${x},${z}`;
+
+    if (!this.state.bombs.has(bombKey)) {
+      const bomb = new Bomb();
+      bomb.x = x;
+      bomb.z = z;
+      bomb.ownerId = ownerId;
+      bomb.team = player.team;
+      this.state.bombs.set(bombKey, bomb);
+      this.clock.setTimeout(() => this.explode(x, z), 3000);
+    }
+  }
+
   checkAllReady() {
     let allReady = true;
     this.state.players.forEach(p => {
-      if (!p.ready) allReady = false;
+      if (!p.ready && !p.isBot) allReady = false;
     });
 
-    const hasEnoughPlayers = this.state.players.size >= 1; // Start with 1 for testing
+    const hasEnoughPlayers = this.state.players.size === 20;
 
     if (allReady && hasEnoughPlayers) {
       if (!this.countdownInterval) {
@@ -267,6 +365,7 @@ export class MyRoom extends Room {
         base.health -= 50;
         if (base.health <= 0) {
           this.state.bases.delete(key);
+          this.checkWinner();
         }
       }
 
@@ -284,17 +383,16 @@ export class MyRoom extends Room {
   }
 
   checkWinner() {
-    const alivePlayers = Array.from(this.state.players.values()).filter(p => p.alive);
+    const aliveTeams = new Set<number>();
+    this.state.bases.forEach(base => {
+      aliveTeams.add(base.team);
+    });
 
-    // Check if only one team is left alive
-    const aliveTeams = new Set(alivePlayers.map(p => p.team));
-
-    if (aliveTeams.size === 1 && this.state.players.size > 1) {
-      // Find the team ID
+    if (aliveTeams.size === 1 && this.state.gameStarted) {
       const winnerTeamId = Array.from(aliveTeams)[0];
-      // For now, we set winnerId to one of the winners
+      // Find a player from the winning team to be the winnerId
       for (let [id, player] of this.state.players.entries()) {
-        if (player.alive) {
+        if (player.team === winnerTeamId) {
           this.state.winnerId = id;
           break;
         }

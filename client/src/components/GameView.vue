@@ -181,7 +181,8 @@ const setupRoomListeners = () => {
             health: player.health, 
             alive: player.alive, 
             loaded: player.loaded,
-            team: player.team
+            team: player.team,
+            isBot: player.isBot
         };
 
         if (!seenPlayers.has(sessionId)) {
@@ -451,12 +452,16 @@ const handleKeyDown = (e) => {
     <div class="hud-top-left">
       <div v-for="(player, id) in playersData" :key="id" class="player-stat" :class="{ 'is-me': id === props.room.sessionId, 'is-dead': !player.alive }">
         <span class="player-dot"></span>
-        <span class="player-name">{{ id === props.room.sessionId ? 'You' : 'Player' }}</span>
+        <span class="player-name">
+          {{ id === props.room.sessionId ? 'You' : (player.isBot ? '[BOT]' : 'Player') }}
+        </span>
         <div class="health-bar-bg">
           <div class="health-bar-fill" :style="{ width: player.health + '%' }"></div>
         </div>
       </div>
     </div>
+
+
 
     <div v-if="winnerName" class="victory-overlay">
         <div class="victory-card">
@@ -473,9 +478,9 @@ const handleKeyDown = (e) => {
             <p>Waiting for all players to initialize...</p>
             <div class="sync-progress">
                 <div class="progress-track">
-                    <div class="progress-bar" :style="{ width: (loadedPlayers / totalPlayers * 100) + '%' }"></div>
+                    <div class="progress-bar" :style="{ width: (totalPlayers / 20 * 100) + '%' }"></div>
                 </div>
-                <span class="progress-text">{{ loadedPlayers }} / {{ totalPlayers }} Players Ready</span>
+                <span class="progress-text">{{ totalPlayers }} / 20 Participants Ready</span>
             </div>
         </div>
     </div>
@@ -669,12 +674,10 @@ canvas {
   background: #3b82f6;
   color: white;
   border: none;
-  padding: 12px 24px;
-  border-radius: 12px;
-  font-weight: 600;
-  cursor: pointer;
   margin-top: 20px;
 }
+
+
 
 .controls-hint {
     position: absolute;

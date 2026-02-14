@@ -45,10 +45,17 @@ const setupRoomListeners = (room) => {
     currentCountdown.value = state.countdown || 0;
     const p = {};
     state.players.forEach((player, id) => {
-      p[id] = { ready: player.ready };
+      p[id] = { ready: player.ready, isBot: player.isBot };
     });
     connectedPlayers.value = p;
   });
+};
+
+const totalParticipants = computed(() => Object.keys(connectedPlayers.value).length);
+const canAddBot = computed(() => totalParticipants.value < 20);
+
+const addBot = () => {
+  if (currentRoom.value) currentRoom.value.send("addBot");
 };
 
 onMounted(() => {
@@ -108,24 +115,37 @@ const joinRoomHandler = async (roomId) => {
 
         <div class="players-list">
           <div v-for="(player, id) in connectedPlayers" :key="id" class="player-ready-item">
-            <span class="player-name">{{ id === currentRoom.sessionId ? 'You' : 'Player ' + id.substring(0, 4) }}</span>
-            <span class="ready-status" :class="{ 'is-ready': player.ready }">
-              {{ player.ready ? 'READY' : 'WAITING' }}
+            <span class="player-name">
+              {{ id === currentRoom.sessionId ? 'You' : (player.isBot ? '[BOT]' : 'Player ' + id.substring(0, 4)) }}
+            </span>
+            <span class="ready-status" :class="{ 'is-ready': player.ready || player.isBot }">
+              {{ (player.ready || player.isBot) ? 'READY' : 'WAITING' }}
             </span>
           </div>
         </div>
 
         <div class="ready-actions">
+          <div class="bot-control-area" v-if="canAddBot">
+            <button @click="addBot" class="btn-secondary bot-btn">Add Bot to Team</button>
+          </div>
+
           <button @click="toggleReady" class="btn-ready"
             :class="{ 'is-ready': connectedPlayers[currentRoom.sessionId]?.ready }">
             {{ connectedPlayers[currentRoom.sessionId]?.ready ? 'I am Ready!' : 'Ready Up' }}
           </button>
 
+          <div class="participant-progress">
+             <div class="progress-track">
+               <div class="progress-bar" :style="{ width: (totalParticipants / 20 * 100) + '%' }"></div>
+             </div>
+             <div class="progress-text">{{ totalParticipants }} / 20 Participants Needed to Start</div>
+          </div>
+
           <div v-if="currentCountdown > 0" class="countdown-timer">
             <span class="countdown-label">Battle starts in:</span>
             <span class="countdown-value">{{ currentCountdown }}</span>
           </div>
-          <p v-else class="waiting-hint">Waiting for all players to ready up...</p>
+          <p v-else class="waiting-hint">Waiting for 20 participants to be ready...</p>
         </div>
       </div>
 
@@ -414,6 +434,57 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.bot-control-area {
+  margin-bottom: 20px;
+}
+
+.bot-btn {
+  width: 100%;
+}
+
+.participant-progress {
+  margin-top: 24px;
+}
+
+.progress-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #3b82f6;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.progress-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 14px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .join-party-form {

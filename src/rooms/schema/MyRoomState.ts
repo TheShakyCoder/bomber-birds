@@ -9,6 +9,7 @@ export class Player extends Schema {
     @type("number") team: number = -1;
     @type("string") partyId: string = "";
     @type("boolean") loaded: boolean = false;
+    @type("boolean") isBot: boolean = false;
 }
 
 export class Block extends Schema {
