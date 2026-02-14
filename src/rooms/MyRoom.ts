@@ -285,18 +285,11 @@ export class MyRoom extends Room {
     const placeBase = (startX: number, startZ: number, team: number) => {
       for (let x = startX; x < startX + 5; x++) {
         for (let z = startZ; z < startZ + 5; z++) {
-          if (x === startX + 2 && z === startZ + 2) {
-            const b = new Base();
-            b.team = team;
-            b.health = 500; // Turrets are even tougher
-            b.isTurret = true;
-            this.state.bases.set(`${x},${z}`, b);
-          } else {
-            const b = new Base();
-            b.team = team;
-            b.health = 200; // Bases are tougher
-            this.state.bases.set(`${x},${z}`, b);
-          }
+          const b = new Base();
+          b.team = team;
+          b.health = 500; // Turrets are even tougher
+          b.isTurret = (x === startX + 2 && z === startZ + 2);
+          this.state.bases.set(`${x},${z}`, b);
         }
       }
     };
