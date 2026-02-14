@@ -283,9 +283,9 @@ export class MyRoom extends Room {
     // T2: Top-Left (1,21)-(3,23)
     // T3: Bottom-Right (21,1)-(23,3)
     const placeBase = (startX: number, startZ: number, team: number) => {
-      for (let x = startX; x < startX + 3; x++) {
-        for (let z = startZ; z < startZ + 3; z++) {
-          if (x === startX + 1 && z === startZ + 1) {
+      for (let x = startX; x < startX + 5; x++) {
+        for (let z = startZ; z < startZ + 5; z++) {
+          if (x === startX + 2 && z === startZ + 2) {
             const b = new Base();
             b.team = team;
             b.health = 500; // Turrets are even tougher
@@ -302,9 +302,9 @@ export class MyRoom extends Room {
     };
 
     placeBase(1, 1, 0);
-    placeBase(size - 4, size - 4, 1);
-    placeBase(1, size - 4, 2);
-    placeBase(size - 4, 1, 3);
+    placeBase(size - 6, size - 6, 1);
+    placeBase(1, size - 6, 2);
+    placeBase(size - 6, 1, 3);
 
     for (let x = 0; x < size; x++) {
       for (let z = 0; z < size; z++) {
@@ -318,8 +318,8 @@ export class MyRoom extends Room {
           const b = new Block(); b.type = "indestructible";
           this.state.grid.set(key, b);
         } else if (Math.random() > 0.7) {
-          // Expanded corner protection (6x6) to accommodate teammate spawn offsets
-          const isCorner = (x <= 5 && z <= 5) || (x >= size - 6 && z >= size - 6) || (x <= 5 && z >= size - 6) || (x >= size - 6 && z <= 5);
+          // Expanded corner protection (7x7) to accommodate relocated bases and spawn offsets
+          const isCorner = (x <= 6 && z <= 6) || (x >= size - 7 && z >= size - 7) || (x <= 6 && z >= size - 7) || (x >= size - 7 && z <= 6);
           if (!isCorner) {
             const b = new Block(); b.type = "destructible";
             this.state.grid.set(key, b);
