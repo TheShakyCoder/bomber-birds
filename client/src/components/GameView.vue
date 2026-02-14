@@ -39,6 +39,18 @@ const isSyncing = computed(() => {
     return loadedPlayers.value < totalPlayers.value;
 });
 
+const isDead = computed(() => {
+    const me = playersData.value[props.room.sessionId];
+    return me && !me.alive;
+});
+
+const respawnCountdown = computed(() => {
+    const me = props.room.state.players.get(props.room.sessionId);
+    if (!me || me.alive || !me.respawnTimestamp) return 0;
+    const remaining = Math.max(0, Math.ceil((me.respawnTimestamp - Date.now()) / 1000));
+    return remaining;
+});
+
 onMounted(() => {
   initBabylon();
   setupRoomListeners();
@@ -88,28 +100,45 @@ const initBabylon = () => {
   highlightLayer = new BABYLON.HighlightLayer("hl1", scene);
 
   engine.runRenderLoop(() => {
+    const now = Date.now();
     const lerpSpeed = 0.2; // Adjust for smoothness vs responsiveness
     const rotLerpSpeed = 0.15;
 
     playerMeshes.forEach((mesh, sessionId) => {
       if (mesh.targetPos) {
-        // Calculate movement vector
         const dx = mesh.targetPos.x - mesh.position.x;
         const dz = mesh.targetPos.z - mesh.position.z;
 
-        // Only rotate if there's significant movement
         if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
           const targetRotation = Math.atan2(dx, dz);
-          
-          // Smooth rotation interpolation
           let diff = targetRotation - mesh.rotation.y;
           while (diff < -Math.PI) diff += Math.PI * 2;
           while (diff > Math.PI) diff -= Math.PI * 2;
           mesh.rotation.y += diff * rotLerpSpeed;
         }
 
-        mesh.position.x = BABYLON.Scalar.Lerp(mesh.position.x, mesh.targetPos.x, lerpSpeed);
-        mesh.position.z = BABYLON.Scalar.Lerp(mesh.position.z, mesh.targetPos.z, lerpSpeed);
+        // Check distance for instant snap (respawn/teleport)
+        const distSq = dx * dx + dz * dz;
+        if (distSq > 4) { // Distance > 2
+          mesh.position.x = mesh.targetPos.x;
+          mesh.position.z = mesh.targetPos.z;
+        } else {
+          mesh.position.x = BABYLON.Scalar.Lerp(mesh.position.x, mesh.targetPos.x, lerpSpeed);
+          mesh.position.z = BABYLON.Scalar.Lerp(mesh.position.z, mesh.targetPos.z, lerpSpeed);
+        }
+      }
+    });
+
+    // Update Bomb Countdowns
+    meshes.forEach((mesh, key) => {
+      if (key.startsWith("bomb_") && mesh.explosionTimestamp) {
+        const remaining = Math.max(0, Math.ceil((mesh.explosionTimestamp - now) / 1000));
+        if (mesh.lastLabelValue !== remaining) {
+          const texture = mesh.labelTexture;
+          texture.clear();
+          texture.drawText(remaining.toString(), null, null, "bold 70px Arial", "white", "transparent", true);
+          mesh.lastLabelValue = remaining;
+        }
       }
     });
 
@@ -212,9 +241,16 @@ const setupRoomListeners = () => {
     // Manual sync for Bombs
     if (state.bombs) {
       state.bombs.forEach((bomb, key) => {
-        if (!seenBombs.has(key)) {
-          seenBombs.add(key);
-          createBombMesh(bomb.x, bomb.z, key, bomb.team);
+        if (state.bombs.has(key)) {
+          const bomb = state.bombs.get(key);
+          if (!seenBombs.has(key)) {
+            seenBombs.add(key);
+            createBombMesh(bomb.x, bomb.z, key, bomb.team, bomb.explosionTimestamp);
+          } else {
+            // Update timestamp if it changes (though usually it doesn't)
+            const mesh = meshes.get(`bomb_${key}`);
+            if (mesh) mesh.explosionTimestamp = bomb.explosionTimestamp;
+          }
         }
       });
       for (const key of seenBombs) {
@@ -288,15 +324,35 @@ const createBlockMesh = (x, z, type, key, team, isTurret) => {
   meshes.set(key, mesh);
 };
 
-const createBombMesh = (x, z, key, team) => {
+const createBombMesh = (x, z, key, team, explosionTimestamp) => {
   const mesh = BABYLON.MeshBuilder.CreateSphere(`bomb_${key}`, { diameter: 0.7 }, scene);
   mesh.position.set(x, 0.5, z);
+  mesh.explosionTimestamp = explosionTimestamp;
 
   const mat = new BABYLON.StandardMaterial(`bombMat_${key}`, scene);
   const teamColor = TEAM_COLORS[team] || new BABYLON.Color3(0.1, 0.1, 0.1);
   mat.diffuseColor = teamColor.scale(0.5);
   mat.emissiveColor = teamColor.scale(0.8);
   mesh.material = mat;
+
+  // Countdown Label
+  const plane = BABYLON.MeshBuilder.CreatePlane(`bombLabel_${key}`, { size: 0.5 }, scene);
+  plane.parent = mesh;
+  plane.position.y = 0.8;
+  plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+
+  const texture = new BABYLON.DynamicTexture(`bombTexture_${key}`, { width: 128, height: 128 }, scene);
+  texture.hasAlpha = true;
+  
+  const planeMat = new BABYLON.StandardMaterial(`bombLabelMat_${key}`, scene);
+  planeMat.diffuseTexture = texture;
+  planeMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+  planeMat.opacityTexture = texture;
+  planeMat.backFaceCulling = false;
+  plane.material = planeMat;
+
+  mesh.labelTexture = texture;
+  mesh.lastLabelValue = -1;
 
   meshes.set(`bomb_${key}`, mesh);
 };
@@ -461,8 +517,6 @@ const handleKeyDown = (e) => {
       </div>
     </div>
 
-
-
     <div v-if="winnerName" class="victory-overlay">
         <div class="victory-card">
             <h2>🏆 VICTORY 🏆</h2>
@@ -471,17 +525,20 @@ const handleKeyDown = (e) => {
         </div>
     </div>
 
+    <div v-if="isDead && !winnerName" class="respawn-overlay">
+        <div class="respawn-card">
+            <h2>OUT OF ACTION</h2>
+            <p>You will respawn at base in:</p>
+            <div class="respawn-timer">{{ respawnCountdown }}s</div>
+            <p class="death-hint">The Wait time increases with each death!</p>
+        </div>
+    </div>
+
     <div v-if="isSyncing && !winnerName" class="loading-overlay">
         <div class="loader-content">
             <div class="loading-spinner"></div>
             <h3>Synchronizing Arena</h3>
             <p>Waiting for all players to initialize...</p>
-            <div class="sync-progress">
-                <div class="progress-track">
-                    <div class="progress-bar" :style="{ width: (totalPlayers / 20 * 100) + '%' }"></div>
-                </div>
-                <span class="progress-text">{{ totalPlayers }} / 20 Participants Ready</span>
-            </div>
         </div>
     </div>
 
@@ -662,6 +719,56 @@ canvas {
     text-align: center;
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 0 50px rgba(59, 130, 246, 0.3);
+}
+
+.respawn-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 150;
+}
+
+.respawn-card {
+    background: #1e293b;
+    padding: 40px;
+    border-radius: 24px;
+    text-align: center;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    box-shadow: 0 0 40px rgba(239, 68, 68, 0.2);
+    animation: pulseBorder 2s infinite;
+}
+
+@keyframes pulseBorder {
+    0% { border-color: rgba(239, 68, 68, 0.3); }
+    50% { border-color: rgba(239, 68, 68, 0.6); }
+    100% { border-color: rgba(239, 68, 68, 0.3); }
+}
+
+.respawn-card h2 {
+    font-size: 2rem;
+    color: #ef4444;
+    margin-bottom: 12px;
+    letter-spacing: 0.1em;
+}
+
+.respawn-timer {
+    font-size: 4rem;
+    font-weight: 800;
+    color: #fff;
+    margin: 20px 0;
+}
+
+.death-hint {
+    font-size: 0.875rem;
+    color: #64748b;
+    font-style: italic;
 }
 
 .victory-card h2 {

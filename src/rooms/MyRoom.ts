@@ -111,6 +111,9 @@ export class MyRoom extends Room {
       if (player.isBot && player.alive) {
         this.updateBot(player, sessionId);
       }
+      if (!player.alive && player.respawnTimestamp > 0 && now >= player.respawnTimestamp) {
+        this.respawnPlayer(sessionId, player);
+      }
     });
 
     for (const [key, base] of this.state.bases) {
@@ -152,6 +155,7 @@ export class MyRoom extends Room {
         bomb.z = targetZ;
         bomb.ownerId = `turret_${key}`;
         bomb.team = team;
+        bomb.explosionTimestamp = Date.now() + 2000;
         this.state.bombs.set(bombKey, bomb);
         this.clock.setTimeout(() => this.explode(targetX, targetZ), 2000); // 2s fuse for turret bombs
         this.turretLastFired.set(key, Date.now());
@@ -166,23 +170,9 @@ export class MyRoom extends Room {
     player.ready = true;
     player.loaded = true;
 
-    // Reuse spawn formation logic
-    let teamIndex = 0;
-    this.state.players.forEach(p => {
-      if (p.team === team) teamIndex++;
-    });
-
-    const size = 25;
-    const formation = [
-      { up: 4, right: 0 }, { up: 4, right: 2 }, { up: 4, right: 4 },
-      { up: 2, right: 4 }, { up: 0, right: 4 }
-    ];
-    const offset = formation[teamIndex % formation.length];
-
-    if (team === 0) { player.x = 1 + offset.right; player.z = 1 + offset.up; }
-    else if (team === 1) { player.x = (size - 2) - offset.right; player.z = (size - 2) - offset.up; }
-    else if (team === 2) { player.x = 1 + offset.up; player.z = (size - 2) - offset.right; }
-    else if (team === 3) { player.x = (size - 2) - offset.up; player.z = 1 + offset.right; }
+    const spawn = this.getSpawnPosition(team, this.getTeamMemberCount(team));
+    player.x = spawn.x;
+    player.z = spawn.z;
 
     this.state.players.set(sessionId, player);
     this.checkAllReady();
@@ -246,6 +236,7 @@ export class MyRoom extends Room {
       bomb.z = z;
       bomb.ownerId = ownerId;
       bomb.team = player.team;
+      bomb.explosionTimestamp = Date.now() + 3000;
       this.state.bombs.set(bombKey, bomb);
       this.clock.setTimeout(() => this.explode(x, z), 3000);
     }
@@ -256,10 +247,9 @@ export class MyRoom extends Room {
     this.state.players.forEach(p => {
       if (!p.ready && !p.isBot) allReady = false;
     });
+    const hasMinimumPlayers = this.state.players.size >= 2;
 
-    const hasEnoughPlayers = this.state.players.size === 20;
-
-    if (allReady && hasEnoughPlayers) {
+    if (allReady && hasMinimumPlayers) {
       if (!this.countdownInterval) {
         this.state.countdown = 10;
         this.countdownInterval = this.clock.setInterval(() => {
@@ -373,9 +363,8 @@ export class MyRoom extends Room {
       this.state.players.forEach((player, sessionId) => {
         if (Math.round(player.x) === tx && Math.round(player.z) === tz) {
           player.health -= 50;
-          if (player.health <= 0) {
-            player.alive = false;
-            this.checkWinner();
+          if (player.health <= 0 && player.alive) {
+            this.handlePlayerDeath(sessionId, player);
           }
         }
       });
@@ -441,41 +430,79 @@ export class MyRoom extends Room {
 
     const size = 25;
 
-    // Calculate index within team for formation
-    let teamIndex = 0;
-    this.state.players.forEach(p => {
-      if (p.team === player.team) teamIndex++;
-    });
-
-    const formation = [
-      { up: 4, right: 0 }, // P1
-      { up: 4, right: 2 }, // P2
-      { up: 4, right: 4 }, // P3
-      { up: 2, right: 4 }, // P4
-      { up: 0, right: 4 }  // P5
-    ];
-
-    const offset = formation[teamIndex % formation.length];
-
-    // Base corners and axis directions
-    if (player.team === 0) { // Bottom-Left (alpha -PI/2) -> Up:+Z, Right:+X
-      player.x = 1 + offset.right;
-      player.z = 1 + offset.up;
-    } else if (player.team === 1) { // Top-Right (alpha PI/2) -> Up:-Z, Right:-X
-      player.x = (size - 2) - offset.right;
-      player.z = (size - 2) - offset.up;
-    } else if (player.team === 2) { // Top-Left (alpha PI) -> Up:+X, Right:-Z (wait, see GameView remapping)
-      // Team 2 GameView mapping: W(Up): +X, D(Right): -Z
-      player.x = 1 + offset.up;
-      player.z = (size - 2) - offset.right;
-    } else if (player.team === 3) { // Bottom-Right (alpha 0) -> Up:-X, Right:+Z
-      // Team 3 GameView mapping: W(Up): -X, D(Right): +Z
-      player.x = (size - 2) - offset.up;
-      player.z = 1 + offset.right;
-    }
+    const spawn = this.getSpawnPosition(player.team, this.getTeamMemberCount(player.team));
+    player.x = spawn.x;
+    player.z = spawn.z;
 
     this.state.players.set(client.sessionId, player);
     this.checkAllReady();
+  }
+
+  getTeamMemberCount(team: number) {
+    let count = 0;
+    this.state.players.forEach(p => {
+      if (p.team === team) count++;
+    });
+    return count;
+  }
+
+  getSpawnPosition(team: number, index: number) {
+    const size = 25;
+    const formation = [
+      { up: 4, right: 0 }, { up: 4, right: 2 }, { up: 4, right: 4 },
+      { up: 2, right: 4 }, { up: 0, right: 4 }
+    ];
+    const offset = formation[index % formation.length];
+    let x = 0, z = 0;
+
+    if (team === 0) { x = 1 + offset.right; z = 1 + offset.up; }
+    else if (team === 1) { x = (size - 2) - offset.right; z = (size - 2) - offset.up; }
+    else if (team === 2) { x = 1 + offset.up; z = (size - 2) - offset.right; }
+    else if (team === 3) { x = (size - 2) - offset.up; z = 1 + offset.right; }
+
+    return { x, z };
+  }
+
+  getFibonacci(n: number): number {
+    if (n <= 1) return 1;
+    let a = 1, b = 1;
+    for (let i = 2; i <= n; i++) {
+      let temp = a + b;
+      a = b;
+      b = temp;
+    }
+    return b;
+  }
+
+  handlePlayerDeath(sessionId: string, player: Player) {
+    player.alive = false;
+    player.health = 0;
+    player.deathCount++;
+    const delaySeconds = this.getFibonacci(player.deathCount);
+    player.respawnTimestamp = Date.now() + (delaySeconds * 1000);
+    console.log(`Player ${sessionId} died! Respawning in ${delaySeconds}s (Fibonacci ${player.deathCount})`);
+  }
+
+  respawnPlayer(sessionId: string, player: Player) {
+    player.alive = true;
+    player.health = 100;
+    player.respawnTimestamp = 0;
+
+    // Find original spawn index for this player
+    let myIndex = 0;
+    let found = false;
+    for (const [id, p] of this.state.players.entries()) {
+      if (id === sessionId) {
+        found = true;
+        break;
+      }
+      if (p.team === player.team) myIndex++;
+    }
+
+    const spawn = this.getSpawnPosition(player.team, myIndex);
+    player.x = spawn.x;
+    player.z = spawn.z;
+    console.log(`Player ${sessionId} respawned at ${player.x}, ${player.z}`);
   }
 
   onLeave(client: Client, code: CloseCode) {

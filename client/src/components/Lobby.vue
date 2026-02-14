@@ -134,18 +134,13 @@ const joinRoomHandler = async (roomId) => {
             {{ connectedPlayers[currentRoom.sessionId]?.ready ? 'I am Ready!' : 'Ready Up' }}
           </button>
 
-          <div class="participant-progress">
-             <div class="progress-track">
-               <div class="progress-bar" :style="{ width: (totalParticipants / 20 * 100) + '%' }"></div>
-             </div>
-             <div class="progress-text">{{ totalParticipants }} / 20 Participants Needed to Start</div>
-          </div>
+
 
           <div v-if="currentCountdown > 0" class="countdown-timer">
             <span class="countdown-label">Battle starts in:</span>
             <span class="countdown-value">{{ currentCountdown }}</span>
           </div>
-          <p v-else class="waiting-hint">Waiting for 20 participants to be ready...</p>
+          <p v-else class="waiting-hint">Waiting for all players to ready up...</p>
         </div>
       </div>
 
