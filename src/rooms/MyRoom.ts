@@ -1,5 +1,6 @@
 import { Room, Client, CloseCode } from "colyseus";
 import { MyRoomState, Player, Block, Bomb } from "./schema/MyRoomState.js";
+import { exit } from "process";
 
 const GREEK_LETTERS = [
   'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta',
@@ -13,7 +14,7 @@ export class MyRoom extends Room {
   countdownInterval: any;
   turretLastFired: Map<string, number> = new Map(); // key -> timestamp
 
-  onCreate (options: any) {
+  onCreate(options: any) {
     if (options.name) {
       this.state.roomName = options.name;
     } else {
@@ -35,6 +36,7 @@ export class MyRoom extends Room {
           bomb.x = x;
           bomb.z = z;
           bomb.ownerId = client.sessionId;
+          bomb.team = player.team;
           this.state.bombs.set(bombKey, bomb);
 
           this.clock.setTimeout(() => this.explode(x, z), 3000);
@@ -88,7 +90,7 @@ export class MyRoom extends Room {
     this.initGrid();
 
     // Set simulation interval for health recharge
-    this.setSimulationInterval((deltaTime) => this.update(deltaTime), 1000);
+    this.setSimulationInterval((deltaTime) => this.update(deltaTime), 100);
   }
 
   update(deltaTime: number) {
@@ -96,28 +98,31 @@ export class MyRoom extends Room {
     this.state.players.forEach((player, sessionId) => {
       if (player.alive && player.health < 100) {
         const block = this.state.grid.get(`${Math.round(player.x)},${Math.round(player.z)}`);
-        if (block && block.type === "base" && block.team === player.team) {
-          player.health = Math.min(100, player.health + 10);
+        if (block?.type === "base" && block?.team === player.team) {
+          player.health = Math.min(100, player.health + (10 * deltaTime / 1000));
         }
       }
     });
 
-    if (this.state.gameStarted) {
-      this.state.grid.forEach((block, key) => {
-        if (block.isTurret) {
-          const lastFired = this.turretLastFired.get(key) || 0;
-          if (now - lastFired > 4000) { // 4 second cooldown
-            const [tx, tz] = key.split(',').map(Number);
-            this.turretFire(key, tx, tz, block.team);
-          }
-        }
-      });
+    if (!this.state.gameStarted) {
+      return;
+    }
+    for (const [key, block] of this.state.grid) {
+      if (!block.isTurret) {
+        continue;
+      }
+      const lastFired = this.turretLastFired.get(key) || 0;
+      if (now - lastFired <= 4000) {
+        continue; // 4 second cooldown
+      }
+      const [tx, tz] = key.split(',').map(Number);
+      this.turretFire(key, tx, tz, block.team);
     }
   }
 
   turretFire(key: string, tx: number, tz: number, team: number) {
     let nearestEnemy: Player | null = null;
-    let minDistance = 10; // Max range
+    let minDistance = 5; // Max range
 
     this.state.players.forEach((p) => {
       if (p.alive && p.team !== team) {
@@ -140,6 +145,7 @@ export class MyRoom extends Room {
         bomb.x = targetX;
         bomb.z = targetZ;
         bomb.ownerId = `turret_${key}`;
+        bomb.team = team;
         this.state.bombs.set(bombKey, bomb);
         this.clock.setTimeout(() => this.explode(targetX, targetZ), 2000); // 2s fuse for turret bombs
         this.turretLastFired.set(key, Date.now());
@@ -182,7 +188,7 @@ export class MyRoom extends Room {
 
   initGrid() {
     const size = 25;
-    
+
     // Team Bases
     // T0: Bottom-Left (1,1)-(3,3)
     // T1: Top-Right (21,21)-(23,23)
@@ -275,102 +281,102 @@ export class MyRoom extends Room {
 
   checkWinner() {
     const alivePlayers = Array.from(this.state.players.values()).filter(p => p.alive);
-    
+
     // Check if only one team is left alive
     const aliveTeams = new Set(alivePlayers.map(p => p.team));
-    
+
     if (aliveTeams.size === 1 && this.state.players.size > 1) {
-        // Find the team ID
-        const winnerTeamId = Array.from(aliveTeams)[0];
-        // For now, we set winnerId to one of the winners
-        for (let [id, player] of this.state.players.entries()) {
-            if (player.alive) {
-                this.state.winnerId = id; 
-                break;
-            }
+      // Find the team ID
+      const winnerTeamId = Array.from(aliveTeams)[0];
+      // For now, we set winnerId to one of the winners
+      for (let [id, player] of this.state.players.entries()) {
+        if (player.alive) {
+          this.state.winnerId = id;
+          break;
         }
+      }
     }
   }
 
-  onJoin (client: Client, options: any) {
+  onJoin(client: Client, options: any) {
     console.log(client.sessionId, "joined!");
     const player = new Player();
-    
-    if (options.partyId) {
-        player.partyId = options.partyId;
-        
-        let existingTeam = -1;
-        this.state.players.forEach(p => {
-            if (p.partyId === options.partyId) {
-                existingTeam = p.team;
-            }
-        });
 
-        if (existingTeam !== -1) {
-            player.team = existingTeam;
-        } else {
-            const usedTeams = new Set();
-            this.state.players.forEach(p => usedTeams.add(p.team));
-            for (let i = 0; i < 4; i++) {
-                if (!usedTeams.has(i)) {
-                    player.team = i;
-                    break;
-                }
-            }
-            if (player.team === -1) player.team = 0;
+    if (options.partyId) {
+      player.partyId = options.partyId;
+
+      let existingTeam = -1;
+      this.state.players.forEach(p => {
+        if (p.partyId === options.partyId) {
+          existingTeam = p.team;
         }
-    } else {
+      });
+
+      if (existingTeam !== -1) {
+        player.team = existingTeam;
+      } else {
         const usedTeams = new Set();
         this.state.players.forEach(p => usedTeams.add(p.team));
         for (let i = 0; i < 4; i++) {
-            if (!usedTeams.has(i)) {
-                player.team = i;
-                break;
-            }
+          if (!usedTeams.has(i)) {
+            player.team = i;
+            break;
+          }
         }
         if (player.team === -1) player.team = 0;
+      }
+    } else {
+      const usedTeams = new Set();
+      this.state.players.forEach(p => usedTeams.add(p.team));
+      for (let i = 0; i < 4; i++) {
+        if (!usedTeams.has(i)) {
+          player.team = i;
+          break;
+        }
+      }
+      if (player.team === -1) player.team = 0;
     }
 
     const size = 25;
-    
+
     // Calculate index within team for formation
     let teamIndex = 0;
     this.state.players.forEach(p => {
-        if (p.team === player.team) teamIndex++;
+      if (p.team === player.team) teamIndex++;
     });
 
     const formation = [
-        { up: 4, right: 0 }, // P1
-        { up: 4, right: 2 }, // P2
-        { up: 4, right: 4 }, // P3
-        { up: 2, right: 4 }, // P4
-        { up: 0, right: 4 }  // P5
+      { up: 4, right: 0 }, // P1
+      { up: 4, right: 2 }, // P2
+      { up: 4, right: 4 }, // P3
+      { up: 2, right: 4 }, // P4
+      { up: 0, right: 4 }  // P5
     ];
-    
+
     const offset = formation[teamIndex % formation.length];
-    
+
     // Base corners and axis directions
     if (player.team === 0) { // Bottom-Left (alpha -PI/2) -> Up:+Z, Right:+X
-        player.x = 1 + offset.right;
-        player.z = 1 + offset.up;
+      player.x = 1 + offset.right;
+      player.z = 1 + offset.up;
     } else if (player.team === 1) { // Top-Right (alpha PI/2) -> Up:-Z, Right:-X
-        player.x = (size - 2) - offset.right;
-        player.z = (size - 2) - offset.up;
+      player.x = (size - 2) - offset.right;
+      player.z = (size - 2) - offset.up;
     } else if (player.team === 2) { // Top-Left (alpha PI) -> Up:+X, Right:-Z (wait, see GameView remapping)
-        // Team 2 GameView mapping: W(Up): +X, D(Right): -Z
-        player.x = 1 + offset.up;
-        player.z = (size - 2) - offset.right;
+      // Team 2 GameView mapping: W(Up): +X, D(Right): -Z
+      player.x = 1 + offset.up;
+      player.z = (size - 2) - offset.right;
     } else if (player.team === 3) { // Bottom-Right (alpha 0) -> Up:-X, Right:+Z
-        // Team 3 GameView mapping: W(Up): -X, D(Right): +Z
-        player.x = (size - 2) - offset.up;
-        player.z = 1 + offset.right;
+      // Team 3 GameView mapping: W(Up): -X, D(Right): +Z
+      player.x = (size - 2) - offset.up;
+      player.z = 1 + offset.right;
     }
 
     this.state.players.set(client.sessionId, player);
     this.checkAllReady();
   }
 
-  onLeave (client: Client, code: CloseCode) {
+  onLeave(client: Client, code: CloseCode) {
     console.log(client.sessionId, "left!", code);
     this.state.players.delete(client.sessionId);
     this.checkAllReady();

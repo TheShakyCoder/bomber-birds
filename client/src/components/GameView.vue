@@ -193,7 +193,7 @@ const setupRoomListeners = () => {
       state.bombs.forEach((bomb, key) => {
         if (!seenBombs.has(key)) {
           seenBombs.add(key);
-          createBombMesh(bomb.x, bomb.z, key);
+          createBombMesh(bomb.x, bomb.z, key, bomb.team);
         }
       });
       for (const key of seenBombs) {
@@ -267,13 +267,14 @@ const createBlockMesh = (x, z, type, key, team, isTurret) => {
   meshes.set(key, mesh);
 };
 
-const createBombMesh = (x, z, key) => {
+const createBombMesh = (x, z, key, team) => {
   const mesh = BABYLON.MeshBuilder.CreateSphere(`bomb_${key}`, { diameter: 0.7 }, scene);
   mesh.position.set(x, 0.5, z);
 
   const mat = new BABYLON.StandardMaterial(`bombMat_${key}`, scene);
-  mat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-  mat.emissiveColor = new BABYLON.Color3(0.5, 0, 0); // Pulsing effect would be nice
+  const teamColor = TEAM_COLORS[team] || new BABYLON.Color3(0.1, 0.1, 0.1);
+  mat.diffuseColor = teamColor.scale(0.5);
+  mat.emissiveColor = teamColor.scale(0.8);
   mesh.material = mat;
 
   meshes.set(`bomb_${key}`, mesh);
@@ -375,6 +376,15 @@ const createPlayerMesh = (sessionId, player) => {
 const handleKeyDown = (e) => {
   const myPlayer = playersData.value[props.room.sessionId];
   if (!myPlayer) return;
+
+  // Prevent default browser behavior for control keys
+  const controlledKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 's', 'a', 'd', ' '];
+  if (controlledKeys.includes(e.key)) {
+    e.preventDefault();
+  }
+
+  // Prevent repeat bomb drops when holding spacebar
+  if (e.repeat) return;
 
   let move = null;
   const team = myPlayer.team;
