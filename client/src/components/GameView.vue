@@ -23,6 +23,7 @@ const TEAM_COLORS = [
 
 // Reactive state for UI logic
 const playersData = ref({});
+const basesHealth = ref({}); // team -> { health, isTurret }
 const syncTimeoutReached = ref(false);
 
 const totalPlayers = computed(() => Object.keys(playersData.value).length || 0);
@@ -199,6 +200,20 @@ const setupRoomListeners = () => {
           if (mesh) { mesh.dispose(); meshes.delete(key); }
         }
       }
+
+      // Update Bases Health HUD
+      const bHealth = {};
+      state.bases.forEach((base) => {
+          if (!bHealth[base.team] || base.isTurret) {
+              // Priority to turret health as it represents team elimination
+              bHealth[base.team] = {
+                  health: base.health,
+                  maxHealth: base.isTurret ? 500 : 200,
+                  isTurret: base.isTurret
+              };
+          }
+      });
+      basesHealth.value = bHealth;
     }
 
     // Manual sync for Players
@@ -504,7 +519,6 @@ const handleKeyDown = (e) => {
 <template>
   <div class="game-view">
     <canvas ref="canvasRef"></canvas>
-    
     <div class="hud-top-left">
       <div v-for="(player, id) in playersData" :key="id" class="player-stat" :class="{ 'is-me': id === props.room.sessionId, 'is-dead': !player.alive }">
         <span class="player-dot"></span>
@@ -513,6 +527,22 @@ const handleKeyDown = (e) => {
         </span>
         <div class="health-bar-bg">
           <div class="health-bar-fill" :style="{ width: player.health + '%' }"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-top-right">
+      <div class="base-integrity-panel">
+        <div class="panel-header">BASE INTEGRITY</div>
+        <div v-for="team in [0, 1, 2, 3]" :key="team" class="base-stat" :class="{ 'is-eliminated': !basesHealth[team] }">
+          <div class="base-label">
+            <span class="team-bullet" :style="{ background: `rgb(${TEAM_COLORS[team].r*255}, ${TEAM_COLORS[team].g*255}, ${TEAM_COLORS[team].b*255})` }"></span>
+            Team {{ team }}
+          </div>
+          <div v-if="basesHealth[team]" class="base-health-bar">
+            <div class="base-health-fill" :style="{ width: (basesHealth[team].health / basesHealth[team].maxHealth * 100) + '%' }"></div>
+          </div>
+          <div v-else class="base-status-tag">ELIMINATED</div>
         </div>
       </div>
     </div>
@@ -644,6 +674,79 @@ canvas {
     flex-direction: column;
     gap: 12px;
     pointer-events: none;
+}
+
+.hud-top-right {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+}
+
+.base-integrity-panel {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    min-width: 180px;
+}
+
+.panel-header {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #64748b;
+    margin-bottom: 12px;
+    letter-spacing: 0.05em;
+}
+
+.base-stat {
+    margin-bottom: 10px;
+}
+
+.base-stat:last-child {
+    margin-bottom: 0;
+}
+
+.base-stat.is-eliminated {
+    opacity: 0.4;
+}
+
+.base-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.813rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.team-bullet {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.base-health-bar {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.base-health-fill {
+    height: 100%;
+    background: #3b82f6;
+    transition: width 0.4s ease;
+}
+
+.base-status-tag {
+    font-size: 0.688rem;
+    font-weight: 700;
+    color: #ef4444;
 }
 
 .player-stat {
