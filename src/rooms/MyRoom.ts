@@ -1,6 +1,10 @@
 import { Room, Client, CloseCode } from "colyseus";
-import { MyRoomState, Player, Block, Bomb, Base } from "./schema/MyRoomState.js";
-import { exit } from "process";
+import { MyRoomState } from "./schema/MyRoomState.js";
+import { Player } from "./schema/Player.js";
+import { Block } from "./schema/Block.js";
+import { Base } from "./schema/Base.js";
+import { Bomb } from "./schema/Bomb.js";
+import { Tower } from "./schema/Tower.js";
 
 const GREEK_LETTERS = [
   'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta',
@@ -275,7 +279,7 @@ export class MyRoom extends Room {
   }
 
   initGrid() {
-    const size = 25;
+    const size = this.state.roomSize;
 
     // Team Bases
     // T0: Bottom-Left (1,1)-(3,3)
@@ -285,11 +289,17 @@ export class MyRoom extends Room {
     const placeBase = (startX: number, startZ: number, team: number) => {
       for (let x = startX; x < startX + 5; x++) {
         for (let z = startZ; z < startZ + 5; z++) {
-          const b = new Base();
-          b.team = team;
-          b.health = 500; // Turrets are even tougher
-          b.isTurret = (x === startX + 2 && z === startZ + 2);
-          this.state.bases.set(`${x},${z}`, b);
+          if (x === startX + 2 && z === startZ + 2) {
+            const t = new Tower();
+            t.team = team;
+            t.health = 500;
+            this.state.towers.set(`${x},${z}`, t);
+          } else {
+            const b = new Base();
+            b.team = team;
+            b.health = 500; // Turrets are even tougher
+            this.state.bases.set(`${x},${z}`, b);
+          }
         }
       }
     };

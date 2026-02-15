@@ -158,6 +158,7 @@ const setupRoomListeners = () => {
   const seenPlayers = new Set();
   const seenBombs = new Set();
   const seenBases = new Set();
+  const seenTowers = new Set();
 
   room.onStateChange((state) => {
     if (state.winnerId) {
@@ -189,7 +190,7 @@ const setupRoomListeners = () => {
         if (!seenBases.has(key)) {
           seenBases.add(key);
           const [x, z] = key.split(',').map(Number);
-          createBlockMesh(x, z, "base", key, base.team, base.isTurret);
+          createBlockMesh(x, z, "base", key, base.team, false);
         }
       });
       // Cleanup bases
@@ -200,21 +201,51 @@ const setupRoomListeners = () => {
           if (mesh) { mesh.dispose(); meshes.delete(key); }
         }
       }
-
-      // Update Bases Health HUD
-      const bHealth = {};
-      state.bases.forEach((base) => {
-          if (!bHealth[base.team] || base.isTurret) {
-              // Priority to turret health as it represents team elimination
-              bHealth[base.team] = {
-                  health: base.health,
-                  maxHealth: base.isTurret ? 500 : 200,
-                  isTurret: base.isTurret
-              };
-          }
-      });
-      basesHealth.value = bHealth;
     }
+
+    // Manual sync for Towers
+    if (state.towers) {
+      state.towers.forEach((tower, key) => {
+        if (!seenTowers.has(key)) {
+          seenTowers.add(key);
+          const [x, z] = key.split(',').map(Number);
+          createBlockMesh(x, z, "tower", key, tower.team, true);
+        }
+      });
+      // Cleanup towers
+      for (const key of seenTowers) {
+        if (!state.towers.has(key)) {
+          seenTowers.delete(key);
+          const mesh = meshes.get(key);
+          if (mesh) { mesh.dispose(); meshes.delete(key); }
+        }
+      }
+    }
+
+    // Update Bases Health HUD
+    const bHealth = {};
+    if (state.bases) {
+      state.bases.forEach((base) => {
+        if (!bHealth[base.team]) {
+          bHealth[base.team] = {
+            health: base.health,
+            maxHealth: 200,
+            isTurret: false
+          };
+        }
+      });
+    }
+    if (state.towers) {
+      state.towers.forEach((tower) => {
+        // Priority to tower health as it represents team elimination
+        bHealth[tower.team] = {
+          health: tower.health,
+          maxHealth: 500,
+          isTurret: true
+        };
+      });
+    }
+    basesHealth.value = bHealth;
 
     // Manual sync for Players
     if (state.players) {

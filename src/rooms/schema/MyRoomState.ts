@@ -1,36 +1,9 @@
 import { Schema, type, MapSchema } from "@colyseus/schema";
-
-export class Player extends Schema {
-    @type("number") x: number = 0;
-    @type("number") z: number = 0;
-    @type("boolean") alive: boolean = true;
-    @type("number") health: number = 100;
-    @type("boolean") ready: boolean = false;
-    @type("number") team: number = -1;
-    @type("string") partyId: string = "";
-    @type("boolean") loaded: boolean = false;
-    @type("boolean") isBot: boolean = false;
-    @type("number") deathCount: number = 0;
-    @type("number") respawnTimestamp: number = 0;
-}
-
-export class Block extends Schema {
-    @type("string") type: string = "destructible"; // "indestructible" | "destructible"
-}
-
-export class Base extends Schema {
-    @type("number") health: number = 200;
-    @type("number") team: number = -1;
-    @type("boolean") isTurret: boolean = false;
-}
-
-export class Bomb extends Schema {
-    @type("number") x: number = 0;
-    @type("number") z: number = 0;
-    @type("string") ownerId: string = "";
-    @type("number") team: number = -1;
-    @type("number") explosionTimestamp: number = 0;
-}
+import { Player } from "./Player.js";
+import { Block } from "./Block.js";
+import { Base } from "./Base.js";
+import { Bomb } from "./Bomb.js";
+import { Tower } from "./Tower.js";
 
 export class MyRoomState extends Schema {
     @type({ map: Player }) players = new MapSchema<Player>();
@@ -41,4 +14,6 @@ export class MyRoomState extends Schema {
     @type("boolean") gameStarted: boolean = false;
     @type("string") roomName: string = "Lobby";
     @type("number") countdown: number = 0;
+    @type("number") roomSize: number = 25;
+    @type({ map: Tower }) towers = new MapSchema<Tower>(); // Keyed by "x,z"
 }
