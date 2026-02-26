@@ -176,7 +176,7 @@ export const useLobbyStore = defineStore('lobby', () => {
         try {
             const cleanCode = inviteCode.trim().toUpperCase();
             errorMessage.value = "Joining party...";
-            const response = await client.http.get(`/party-id/${cleanCode}`);
+            const response = await client.http.get(`party-id/${cleanCode}`);
 
             if (response.data && response.data.roomId) {
                 const room = await client.joinById(response.data.roomId, {});
