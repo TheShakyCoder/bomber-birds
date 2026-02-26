@@ -202,8 +202,7 @@ export const useLobbyStore = defineStore('lobby', () => {
     const startPartyBattle = async () => {
         if (!joinedParty.value) return;
         errorMessage.value = "Finding game room for party...";
-        try {
-            const response = await client.http.get("/api/rooms");
+            const response = await client.http.get("api/rooms");
             if (response.data.length > 0) {
                 await joinGameRoom(response.data[0].roomId);
             } else {
@@ -236,7 +235,7 @@ export const useLobbyStore = defineStore('lobby', () => {
 
     const fetchRooms = async () => {
         try {
-            const response = await client.http.get("/api/rooms");
+            const response = await client.http.get("api/rooms");
             rooms.value = response.data;
         } catch (e) {
             errorMessage.value = "Failed to fetch rooms: " + e.message;
