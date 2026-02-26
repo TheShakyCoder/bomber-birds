@@ -9,7 +9,9 @@ defineTypes(Player, {
     ready: "boolean",
     team: "number",
     partyId: "string",
-    loaded: "boolean"
+    loaded: "boolean",
+    coins: "number",
+    bombRange: "number"
 });
 
 export class Block extends Schema {}

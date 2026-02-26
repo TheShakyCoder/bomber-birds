@@ -5,6 +5,7 @@ import { Block } from "./schema/Block.js";
 import { Base } from "./schema/Base.js";
 import { Bomb } from "./schema/Bomb.js";
 import { Tower } from "./schema/Tower.js";
+import { Coin } from "./schema/Coin.js";
 
 const GREEK_LETTERS = [
   'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta',
@@ -58,6 +59,14 @@ export class MyRoom extends Room {
         if (canMove) {
           player.x = nextX;
           player.z = nextZ;
+
+          // Pickup coins
+          const coinKey = `${Math.round(nextX)},${Math.round(nextZ)}`;
+          if (this.state.coins.has(coinKey)) {
+            this.state.coins.delete(coinKey);
+            player.coins += 10;
+            console.log(`Player ${client.sessionId} picked up a coin at ${coinKey}. Total: ${player.coins}`);
+          }
         }
       }
     });
@@ -89,7 +98,27 @@ export class MyRoom extends Room {
       }
     });
 
+    this.onMessage("buyItem", (client, message) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+
+      if (message.item === "bombRange") {
+        const cost = 50 + (player.bombRange - 1) * 50;
+        if (player.coins >= cost) {
+          player.coins -= cost;
+          player.bombRange++;
+          console.log(`Player ${client.sessionId} bought bombRange. Now ${player.bombRange}`);
+        }
+      }
+    });
+
     this.initGrid();
+    
+    // Random block spawner every 10 seconds
+    this.clock.setInterval(() => {
+      if (!this.state.gameStarted) return;
+      this.spawnRandomBlocks(5);
+    }, 10000);
 
     // Set simulation interval for health recharge
     this.setSimulationInterval((deltaTime) => this.update(deltaTime), 100);
@@ -120,16 +149,13 @@ export class MyRoom extends Room {
       }
     });
 
-    for (const [key, base] of this.state.bases) {
-      if (!base.isTurret) {
-        continue;
-      }
+    for (const [key, tower] of this.state.towers) {
       const lastFired = this.turretLastFired.get(key) || 0;
       if (now - lastFired <= 4000) {
         continue; // 4 second cooldown
       }
       const [tx, tz] = key.split(',').map(Number);
-      this.turretFire(key, tx, tz, base.team);
+      this.turretFire(key, tx, tz, tower.team);
     }
   }
 
@@ -334,23 +360,46 @@ export class MyRoom extends Room {
 
   explode(x: number, z: number) {
     const bombKey = `${x},${z}`;
+    const bomb = this.state.bombs.get(bombKey);
+    let range = 1;
+    let owner: Player | null = null;
+    if (bomb) {
+      owner = this.state.players.get(bomb.ownerId);
+      if (owner) range = owner.bombRange;
+    }
+    
     this.state.bombs.delete(bombKey);
 
     const directions = [
-      { dx: 0, dz: 0 }, // Center
-      { dx: 1, dz: 0 }, { dx: -1, dz: 0 },
-      { dx: 0, dz: 1 }, { dx: 0, dz: -1 }
+      { dx: 0, dz: 0 } // Center
     ];
+    for (let i = 1; i <= range; i++) {
+      directions.push({ dx: i, dz: 0 });
+      directions.push({ dx: -i, dz: 0 });
+      directions.push({ dx: 0, dz: i });
+      directions.push({ dx: 0, dz: -i });
+    }
 
+    const affectedTiles: { x: number, z: number }[] = [];
     directions.forEach(dir => {
       const tx = x + dir.dx;
       const tz = z + dir.dz;
       const key = `${tx},${tz}`;
+      affectedTiles.push({ x: tx, z: tz });
 
       // Destroy blocks
       const block = this.state.grid.get(key);
       if (block && block.type === "destructible") {
         this.state.grid.delete(key);
+        if (owner) {
+          owner.coins += 10;
+        }
+        
+        // Drop a coin (100% chance for now as requested)
+        const coin = new Coin();
+        coin.x = tx;
+        coin.z = tz;
+        this.state.coins.set(key, coin);
       }
 
       const base = this.state.bases.get(key);
@@ -372,6 +421,8 @@ export class MyRoom extends Room {
         }
       });
     });
+
+    this.broadcast("explosion", { tiles: affectedTiles });
   }
 
   checkWinner() {
@@ -395,6 +446,7 @@ export class MyRoom extends Room {
   onJoin(client: Client, options: any) {
     console.log(client.sessionId, "joined!");
     const player = new Player();
+    player.coins = 100; // Starting coins for testing
 
     if (options.partyId) {
       player.partyId = options.partyId;
@@ -512,6 +564,60 @@ export class MyRoom extends Room {
     console.log(client.sessionId, "left!", code);
     this.state.players.delete(client.sessionId);
     this.checkAllReady();
+  }
+
+  spawnRandomBlocks(count: number) {
+    const size = this.state.roomSize;
+    const maxBlocks = Math.floor(size * size * 0.25);
+    
+    // Count current destructible blocks
+    let currentBlocks = 0;
+    this.state.grid.forEach(block => {
+      if (block.type === "destructible") currentBlocks++;
+    });
+
+    if (currentBlocks >= maxBlocks) {
+      console.log(`Block limit reached (${currentBlocks}/${maxBlocks}). No new blocks spawned.`);
+      return;
+    }
+
+    // Limit count to not exceed maxBlocks
+    const countToSpawn = Math.min(count, maxBlocks - currentBlocks);
+
+    let placed = 0;
+    let attempts = 0;
+    
+    while (placed < countToSpawn && attempts < 50) {
+      attempts++;
+      const x = Math.floor(Math.random() * (size - 2)) + 1;
+      const z = Math.floor(Math.random() * (size - 2)) + 1;
+      const key = `${x},${z}`;
+
+      // Avoid spawning on existing objects
+      if (this.state.grid.has(key) || this.state.bases.has(key) || this.state.towers.has(key) || this.state.bombs.has(key)) {
+        continue;
+      }
+
+      // Corner protection (7x7)
+      const isCorner = (x <= 6 && z <= 6) || (x >= size - 7 && z >= size - 7) || (x <= 6 && z >= size - 7) || (x >= size - 7 && z <= 6);
+      if (isCorner) continue;
+
+      // Ensure no player is standing there
+      let playerPresent = false;
+      this.state.players.forEach(p => {
+        if (Math.round(p.x) === x && Math.round(p.z) === z) playerPresent = true;
+      });
+      if (playerPresent) continue;
+
+      const block = new Block();
+      block.type = "destructible";
+      this.state.grid.set(key, block);
+      placed++;
+    }
+    
+    if (placed > 0) {
+      console.log(`Spawned ${placed} new destructible blocks.`);
+    }
   }
 
   onDispose() {

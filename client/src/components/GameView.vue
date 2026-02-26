@@ -13,6 +13,7 @@ let engine, scene, camera;
 const meshes = new Map(); // id -> Mesh
 const playerMeshes = new Map(); // sessionId -> Mesh
 let highlightLayer;
+const rangePreviewMeshes = [];
 
 const TEAM_COLORS = [
   new BABYLON.Color3(1, 0.2, 0.2),   // Team 0: Red
@@ -25,6 +26,7 @@ const TEAM_COLORS = [
 const playersData = ref({});
 const basesHealth = ref({}); // team -> { health, isTurret }
 const syncTimeoutReached = ref(false);
+const showShop = ref(false);
 
 const totalPlayers = computed(() => Object.keys(playersData.value).length || 0);
 const loadedPlayers = computed(() => {
@@ -50,6 +52,34 @@ const respawnCountdown = computed(() => {
     if (!me || me.alive || !me.respawnTimestamp) return 0;
     const remaining = Math.max(0, Math.ceil((me.respawnTimestamp - Date.now()) / 1000));
     return remaining;
+});
+
+const isOnBase = computed(() => {
+    const me = playersData.value[props.room.sessionId];
+    if (!me || !me.alive) return false;
+    
+    const x = Math.round(me.x);
+    const z = Math.round(me.z);
+    const key = `${x},${z}`;
+    
+    // Check if current tile is a base OR tower belonging to player's team
+    const base = props.room.state.bases.get(key);
+    const tower = props.room.state.towers.get(key);
+    
+    const onOurTerritory = (base && base.team === me.team) || (tower && tower.team === me.team);
+    
+    // Auto-close shop if we move off base
+    if (!onOurTerritory && showShop.value) {
+        showShop.value = false;
+    }
+    
+    return onOurTerritory;
+});
+
+const upgradeCost = computed(() => {
+    const me = playersData.value[props.room.sessionId];
+    if (!me) return 0;
+    return 50 + (me.bombRange - 1) * 50;
 });
 
 onMounted(() => {
@@ -143,6 +173,8 @@ const initBabylon = () => {
       }
     });
 
+    updateRangePreview();
+
     scene.render();
   });
 
@@ -152,11 +184,19 @@ const initBabylon = () => {
 
 const setupRoomListeners = () => {
   const room = props.room;
-  if (!room || !room.state) return;
+  room.onMessage("explosion", (message) => {
+    if (message.tiles) {
+      message.tiles.forEach(tile => {
+        createExplosionEffect(tile.x, tile.z);
+        createTileGlow(tile.x, tile.z);
+      });
+    }
+  });
 
   const seenGrid = new Set();
   const seenPlayers = new Set();
   const seenBombs = new Set();
+  const seenCoins = new Set();
   const seenBases = new Set();
   const seenTowers = new Set();
 
@@ -199,6 +239,19 @@ const setupRoomListeners = () => {
           seenBases.delete(key);
           const mesh = meshes.get(key);
           if (mesh) { mesh.dispose(); meshes.delete(key); }
+        } else {
+            // Update darkening effect based on health
+            const base = state.bases.get(key);
+            const mesh = meshes.get(key);
+            if (mesh && mesh.material) {
+                const healthRatio = base.health / 500;
+                const teamColor = TEAM_COLORS[base.team] || new BABYLON.Color3(0.5, 0.5, 0.5);
+                // Scale color between 20% and 100% brightness based on health
+                mesh.material.diffuseColor = teamColor.scale(0.2 + 0.8 * healthRatio);
+                if (mesh.material.emissiveColor) {
+                    mesh.material.emissiveColor = teamColor.scale((0.2 + 0.8 * healthRatio) * 0.2);
+                }
+            }
         }
       }
     }
@@ -218,6 +271,18 @@ const setupRoomListeners = () => {
           seenTowers.delete(key);
           const mesh = meshes.get(key);
           if (mesh) { mesh.dispose(); meshes.delete(key); }
+        } else {
+            // Update darkening effect based on health
+            const tower = state.towers.get(key);
+            const mesh = meshes.get(key);
+            if (mesh && mesh.material) {
+                const healthRatio = tower.health / 500;
+                const teamColor = TEAM_COLORS[tower.team] || new BABYLON.Color3(0.5, 0.5, 0.5);
+                mesh.material.diffuseColor = teamColor.scale(0.2 + 0.8 * healthRatio);
+                if (mesh.material.emissiveColor) {
+                    mesh.material.emissiveColor = teamColor.scale((0.2 + 0.8 * healthRatio) * 0.2);
+                }
+            }
         }
       }
     }
@@ -229,7 +294,7 @@ const setupRoomListeners = () => {
         if (!bHealth[base.team]) {
           bHealth[base.team] = {
             health: base.health,
-            maxHealth: 200,
+            maxHealth: 500,
             isTurret: false
           };
         }
@@ -257,7 +322,11 @@ const setupRoomListeners = () => {
             alive: player.alive, 
             loaded: player.loaded,
             team: player.team,
-            isBot: player.isBot
+            isBot: player.isBot,
+            coins: player.coins,
+            bombRange: player.bombRange,
+            x: player.x,
+            z: player.z
         };
 
         if (!seenPlayers.has(sessionId)) {
@@ -304,6 +373,23 @@ const setupRoomListeners = () => {
           seenBombs.delete(key);
           const mesh = meshes.get(`bomb_${key}`);
           if (mesh) { mesh.dispose(); meshes.delete(`bomb_${key}`); }
+        }
+      }
+    }
+
+    // Manual sync for Coins
+    if (state.coins) {
+      state.coins.forEach((coin, key) => {
+        if (!seenCoins.has(key)) {
+          seenCoins.add(key);
+          createCoinMesh(coin.x, coin.z, key);
+        }
+      });
+      for (const key of seenCoins) {
+        if (!state.coins.has(key)) {
+          seenCoins.delete(key);
+          const mesh = meshes.get(`coin_${key}`);
+          if (mesh) { mesh.dispose(); meshes.delete(`coin_${key}`); }
         }
       }
     }
@@ -403,6 +489,29 @@ const createBombMesh = (x, z, key, team, explosionTimestamp) => {
   meshes.set(`bomb_${key}`, mesh);
 };
 
+const createCoinMesh = (x, z, key) => {
+  const mesh = BABYLON.MeshBuilder.CreateCylinder(`coin_${key}`, { diameter: 0.5, height: 0.1, tessellation: 12 }, scene);
+  mesh.position.set(x, 0.3, z);
+  mesh.rotation.x = Math.PI / 2;
+
+  const mat = new BABYLON.StandardMaterial(`coinMat_${key}`, scene);
+  mat.diffuseColor = new BABYLON.Color3(1, 0.9, 0.2);
+  mat.emissiveColor = new BABYLON.Color3(0.5, 0.4, 0);
+  mesh.material = mat;
+
+  // Add a simple rotation animation
+  const anim = new BABYLON.Animation("coinRot", "rotation.y", 30, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE);
+  const keys = [
+    { frame: 0, value: 0 },
+    { frame: 60, value: Math.PI * 2 }
+  ];
+  anim.setKeys(keys);
+  mesh.animations.push(anim);
+  scene.beginAnimation(mesh, 0, 60, true);
+
+  meshes.set(`coin_${key}`, mesh);
+};
+
 const createPlayerMesh = (sessionId, player) => {
   const isMe = sessionId === props.room.sessionId;
   
@@ -496,6 +605,138 @@ const createPlayerMesh = (sessionId, player) => {
   }
 };
 
+const createExplosionEffect = (x, z) => {
+  // Create a particle system
+  const particleSystem = new BABYLON.ParticleSystem("particles", 200, scene);
+
+  // Texture of each particle
+  particleSystem.particleTexture = new BABYLON.Texture("https://raw.githubusercontent.com/PatrickRyanMS/BabylonJS_Resources/master/ParticleSystem/Assets/flare.png", scene);
+
+  // Where the particles come from
+  particleSystem.emitter = new BABYLON.Vector3(x, 0.5, z); // Position of the explosion
+  particleSystem.minEmitBox = new BABYLON.Vector3(-0.5, 0, -0.5); 
+  particleSystem.maxEmitBox = new BABYLON.Vector3(0.5, 0.5, 0.5); 
+
+  // Colors of all particles
+  particleSystem.color1 = new BABYLON.Color4(1, 0.5, 0, 1.0);
+  particleSystem.color2 = new BABYLON.Color4(1, 0.2, 0.1, 1.0);
+  particleSystem.colorDead = new BABYLON.Color4(0, 0, 0, 0.0);
+
+  // Size of each particle
+  particleSystem.minSize = 0.1;
+  particleSystem.maxSize = 0.5;
+
+  // Life time of each particle
+  particleSystem.minLifeTime = 0.2;
+  particleSystem.maxLifeTime = 0.5;
+
+  // Emission rate
+  particleSystem.emitRate = 500;
+
+  // Blend mode : BLENDMODE_ONEONE, or BLENDMODE_STANDARD
+  particleSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+
+  // Set the gravity of all particles
+  particleSystem.gravity = new BABYLON.Vector3(0, 9.81, 0);
+
+  // Direction of each particle after it has been emitted
+  particleSystem.direction1 = new BABYLON.Vector3(-1, 1, -1);
+  particleSystem.direction2 = new BABYLON.Vector3(1, 1, 1);
+
+  // Angular speed, in radians
+  particleSystem.minAngularSpeed = 0;
+  particleSystem.maxAngularSpeed = Math.PI;
+
+  // Speed
+  particleSystem.minEmitPower = 1;
+  particleSystem.maxEmitPower = 5;
+  particleSystem.updateSpeed = 0.005;
+
+  // Start the particle system
+  particleSystem.start();
+
+  // Stop the particle system after a short duration
+  setTimeout(() => {
+    particleSystem.stop();
+    setTimeout(() => {
+      particleSystem.dispose();
+    }, 1000); // Wait for particles to die out
+  }, 200);
+};
+
+const createTileGlow = (x, z) => {
+  const glow = BABYLON.MeshBuilder.CreatePlane(`glow_${x}_${z}`, { size: 0.95 }, scene);
+  glow.position.set(x, 0.02, z); // Slightly above the ground
+  glow.rotation.x = Math.PI / 2;
+
+  const mat = new BABYLON.StandardMaterial(`glowMat_${x}_${z}`, scene);
+  mat.emissiveColor = new BABYLON.Color3(1, 0, 0);
+  mat.alpha = 0.6;
+  glow.material = mat;
+
+  // Fade out and dispose
+  let alpha = 0.6;
+  const fadeOut = setInterval(() => {
+    alpha -= 0.05;
+    mat.alpha = alpha;
+    if (alpha <= 0) {
+      clearInterval(fadeOut);
+      glow.dispose();
+      mat.dispose();
+    }
+  }, 50);
+
+  // Safety dispose
+  setTimeout(() => {
+    if (!glow.isDisposed()) {
+        clearInterval(fadeOut);
+        glow.dispose();
+        mat.dispose();
+    }
+  }, 1000);
+};
+
+const updateRangePreview = () => {
+  const me = playersData.value[props.room.sessionId];
+  if (!me || !me.alive) {
+    rangePreviewMeshes.forEach(m => m.dispose());
+    rangePreviewMeshes.length = 0;
+    return;
+  }
+
+  const x = Math.round(me.x);
+  const z = Math.round(me.z);
+  const range = me.bombRange || 1;
+  const tiles = [{ x, z }];
+
+  for (let i = 1; i <= range; i++) {
+    tiles.push({ x: x + i, z });
+    tiles.push({ x: x - i, z });
+    tiles.push({ x, z: z + i });
+    tiles.push({ x, z: z - i });
+  }
+
+  // Reuse or recreate meshes
+  while (rangePreviewMeshes.length > tiles.length) {
+    rangePreviewMeshes.pop().dispose();
+  }
+
+  tiles.forEach((tile, i) => {
+    let mesh = rangePreviewMeshes[i];
+    if (!mesh) {
+      mesh = BABYLON.MeshBuilder.CreatePlane(`rangePreview_${i}`, { size: 0.95 }, scene);
+      mesh.rotation.x = Math.PI / 2;
+      const mat = new BABYLON.StandardMaterial(`rangePreviewMat_${i}`, scene);
+      mat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+      mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+      mat.alpha = 0.15;
+      mesh.material = mat;
+      rangePreviewMeshes.push(mesh);
+    }
+    mesh.position.set(tile.x, 0.015, tile.z); // Slightly lower than glow
+  });
+};
+
 const handleKeyDown = (e) => {
   const myPlayer = playersData.value[props.room.sessionId];
   if (!myPlayer) return;
@@ -545,6 +786,10 @@ const handleKeyDown = (e) => {
     props.room.send("move", move);
   }
 };
+
+const buyUpgrade = (item) => {
+    props.room.send("buyItem", { item });
+};
 </script>
 
 <template>
@@ -556,6 +801,9 @@ const handleKeyDown = (e) => {
         <span class="player-name">
           {{ id === props.room.sessionId ? 'You' : (player.isBot ? '[BOT]' : 'Player') }}
         </span>
+        <div class="player-coins" v-if="player.coins !== undefined">
+          💰 {{ player.coins }}
+        </div>
         <div class="health-bar-bg">
           <div class="health-bar-fill" :style="{ width: player.health + '%' }"></div>
         </div>
@@ -600,6 +848,37 @@ const handleKeyDown = (e) => {
             <div class="loading-spinner"></div>
             <h3>Synchronizing Arena</h3>
             <p>Waiting for all players to initialize...</p>
+        </div>
+    </div>
+
+    <div v-if="isOnBase" class="shop-trigger">
+        <button @click="showShop = true" class="btn-shop">🏪 OPEN SHOP</button>
+    </div>
+
+    <div v-if="showShop" class="shop-modal" @click.self="showShop = false">
+        <div class="shop-card">
+            <div class="shop-header">
+                <h2>BASE ARMORY</h2>
+                <button @click="showShop = false" class="close-shop">&times;</button>
+            </div>
+            <div class="shop-items">
+                <div class="shop-item">
+                    <div class="item-info">
+                        <h3>Extra Range</h3>
+                        <p>Increase bomb explosion radius. Current: +{{ (playersData[props.room.sessionId]?.bombRange || 1) - 1 }}</p>
+                    </div>
+                    <button 
+                        @click="buyUpgrade('bombRange')" 
+                        class="btn-buy"
+                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < upgradeCost"
+                    >
+                        💰 {{ upgradeCost }}
+                    </button>
+                </div>
+            </div>
+            <div class="shop-footer">
+                Your Balance: 💰 {{ playersData[props.room.sessionId]?.coins || 0 }}
+            </div>
         </div>
     </div>
 
@@ -933,5 +1212,147 @@ canvas {
     color: #94a3b8;
     pointer-events: none;
     border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.player-coins {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #f59e0b;
+    margin-right: 4px;
+}
+
+.shop-trigger {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+}
+
+.btn-shop {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 30px;
+    font-weight: 800;
+    font-size: 1rem;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+}
+
+.btn-shop:hover {
+    background: #2563eb;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+}
+
+.shop-modal {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+}
+
+.shop-card {
+    background: #1e293b;
+    width: 400px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+.shop-header {
+    padding: 24px;
+    background: rgba(255, 255, 255, 0.03);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.shop-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: #3b82f6;
+}
+
+.close-shop {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.shop-items {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.shop-item {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 16px;
+    border-radius: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.item-info h3 {
+    margin: 0 0 4px 0;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.item-info p {
+    margin: 0;
+    font-size: 0.813rem;
+    color: #94a3b8;
+}
+
+.btn-buy {
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-buy:hover:not(:disabled) {
+    background: #059669;
+    transform: scale(1.05);
+}
+
+.btn-buy:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.shop-footer {
+    padding: 16px 24px;
+    background: rgba(0, 0, 0, 0.2);
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #f59e0b;
+    text-align: center;
 }
 </style>

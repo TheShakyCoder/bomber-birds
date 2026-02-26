@@ -4,12 +4,14 @@ import { Block } from "./Block.js";
 import { Base } from "./Base.js";
 import { Bomb } from "./Bomb.js";
 import { Tower } from "./Tower.js";
+import { Coin } from "./Coin.js";
 
 export class MyRoomState extends Schema {
     @type({ map: Player }) players = new MapSchema<Player>();
     @type({ map: Block }) grid = new MapSchema<Block>(); // Keyed by "x,z"
     @type({ map: Base }) bases = new MapSchema<Base>(); // Keyed by "x,z"
     @type({ map: Bomb }) bombs = new MapSchema<Bomb>(); // Keyed by "x,z"
+    @type({ map: Coin }) coins = new MapSchema<Coin>(); // Keyed by "x,z"
     @type("string") winnerId: string = "";
     @type("boolean") gameStarted: boolean = false;
     @type("string") roomName: string = "Lobby";

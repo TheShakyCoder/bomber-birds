@@ -12,4 +12,6 @@ export class Player extends Schema {
     @type("boolean") isBot: boolean = false;
     @type("number") deathCount: number = 0;
     @type("number") respawnTimestamp: number = 0;
+    @type("number") coins: number = 0;
+    @type("number") bombRange: number = 1;
 }
