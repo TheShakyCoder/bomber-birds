@@ -12,9 +12,9 @@ export const useLobbyStore = defineStore('lobby', () => {
     let serverUrl = import.meta.env.VITE_WS_URL || "";
 
     // Smart fallback if environment variables fail to load during build
-    if (!serverUrl && window.location.hostname.includes('bomber-league.on-forge.com')) {
+    if (!serverUrl && window.location.hostname.includes('.on-forge.com')) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        serverUrl = `${protocol}//bomber-league.on-forge.com/colyseus/`;
+        serverUrl = `${protocol}//${window.location.hostname}/colyseus/`;
     }
 
     // Ensure it's a string and has a protocol if not defaulting
