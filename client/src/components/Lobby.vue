@@ -138,44 +138,50 @@ const joinRoomHandler = async (roomId) => {
 
       <div v-else class="room-browser">
         <!-- Party System Section -->
-        <div class="party-section">
-          <div v-if="joinedParty" class="joined-party">
-            <div class="party-info">
-              <span class="party-label">Party Code:</span>
-              <div class="party-code-box">
-                <code>{{ partyInviteCode }}</code>
-                <button @click="copyPartyCode" class="btn-icon" title="Copy Code">
-                  <span v-if="copySuccess">✓</span>
-                  <span v-else>📋</span>
-                </button>
-              </div>
-            </div>
-            
-            <div class="party-members-grid">
-              <div v-for="(member, id) in partyMembers" :key="id" class="party-member-chip">
-                <span class="member-icon">{{ member.isLeader ? '👑' : '👤' }}</span>
-                <span class="member-name">{{ id === joinedParty.sessionId ? 'Me' : id.substring(0, 4) }}</span>
-                <span class="member-ready" :class="{ 'is-ready': member.ready }">•</span>
-              </div>
-            </div>
-
-            <div class="party-footer">
-              <button v-if="isPartyLeader()" @click="startPartyBattle" class="btn-primary start-btn">
-                Find Game for Party
-              </button>
-              <button v-else @click="togglePartyReady" class="btn-ready-small" :class="{ 'ready-go': partyMembers[joinedParty.sessionId]?.ready }">
-                {{ partyMembers[joinedParty.sessionId]?.ready ? 'Ready!' : 'Ready Up' }}
-              </button>
-              <button @click="leaveParty" class="btn-leave-party">Leave Party</button>
-            </div>
+        <div class="party-unavailable-wrapper">
+          <div class="party-unavailable-overlay">
+            <span class="party-unavailable-icon">🚧</span>
+            <span class="party-unavailable-text">Party Mode — Coming Soon</span>
           </div>
+          <div class="party-section party-section--disabled">
+            <div v-if="joinedParty" class="joined-party">
+              <div class="party-info">
+                <span class="party-label">Party Code:</span>
+                <div class="party-code-box">
+                  <code>{{ partyInviteCode }}</code>
+                  <button @click="copyPartyCode" class="btn-icon" title="Copy Code" disabled>
+                    <span v-if="copySuccess">✓</span>
+                    <span v-else>📋</span>
+                  </button>
+                </div>
+              </div>
+              
+              <div class="party-members-grid">
+                <div v-for="(member, id) in partyMembers" :key="id" class="party-member-chip">
+                  <span class="member-icon">{{ member.isLeader ? '👑' : '👤' }}</span>
+                  <span class="member-name">{{ id === joinedParty.sessionId ? 'Me' : id.substring(0, 4) }}</span>
+                  <span class="member-ready" :class="{ 'is-ready': member.ready }">•</span>
+                </div>
+              </div>
 
-          <div v-else class="no-party">
-            <button @click="createParty" class="btn-secondary">Create Party</button>
-            <div class="join-party-form">
-              <input v-model="inviteToJoin" placeholder="Invite Code" @keyup.enter="joinPartyByCode(inviteToJoin)" />
-              <button @click="pastePartyCode().then(code => inviteToJoin = code)" class="btn-paste" title="Paste Code">Paste</button>
-              <button @click="joinPartyByCode(inviteToJoin)" class="btn-join">Join</button>
+              <div class="party-footer">
+                <button v-if="isPartyLeader()" class="btn-primary start-btn" disabled>
+                  Find Game for Party
+                </button>
+                <button v-else class="btn-ready-small" disabled>
+                  Ready Up
+                </button>
+                <button class="btn-leave-party" disabled>Leave Party</button>
+              </div>
+            </div>
+
+            <div v-else class="no-party">
+              <button class="btn-secondary" disabled>Create Party</button>
+              <div class="join-party-form">
+                <input placeholder="Invite Code" disabled />
+                <button class="btn-paste" disabled>Paste</button>
+                <button class="btn-join" disabled>Join</button>
+              </div>
             </div>
           </div>
         </div>
@@ -413,8 +419,46 @@ h2 {
 }
 
 /* Room Browser Styles */
-.party-section {
+.party-unavailable-wrapper {
+  position: relative;
   margin-bottom: 32px;
+}
+
+.party-unavailable-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(3px);
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+}
+
+.party-unavailable-icon {
+  font-size: 1.5rem;
+}
+
+.party-unavailable-text {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.party-section {
+  margin-bottom: 0;
+}
+
+.party-section--disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
 }
 
 .no-party {
