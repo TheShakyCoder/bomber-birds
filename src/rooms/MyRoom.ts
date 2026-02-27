@@ -88,16 +88,6 @@ export class MyRoom extends Room {
       }
     });
 
-    this.onMessage("addBot", (client) => {
-      if (this.state.gameStarted) return;
-      if (this.state.players.size >= 20) return;
-
-      const player = this.state.players.get(client.sessionId);
-      if (player) {
-        const botId = `bot_${Math.random().toString(36).substr(2, 9)}`;
-        this.addBot(botId, player.team);
-      }
-    });
 
     this.onMessage("buyItem", (client, message) => {
       const player = this.state.players.get(client.sessionId);
@@ -140,11 +130,7 @@ export class MyRoom extends Room {
       return;
     }
 
-    // Bot AI
     this.state.players.forEach((player, sessionId) => {
-      if (player.isBot && player.alive) {
-        this.updateBot(player, sessionId);
-      }
       if (!player.alive && player.respawnTimestamp > 0 && now >= player.respawnTimestamp) {
         this.respawnPlayer(sessionId, player);
       }
@@ -194,68 +180,6 @@ export class MyRoom extends Room {
     }
   }
 
-  addBot(sessionId: string, team: number) {
-    const player = new Player();
-    player.team = team;
-    player.isBot = true;
-    player.ready = true;
-    player.loaded = true;
-
-    const spawn = this.getSpawnPosition(team, this.getTeamMemberCount(team));
-    player.x = spawn.x;
-    player.z = spawn.z;
-
-    this.state.players.set(sessionId, player);
-    this.checkAllReady();
-  }
-
-  updateBot(bot: Player, sessionId: string) {
-    if (!bot.alive) return;
-
-    // Very simple Bot AI: move towards nearest enemy or bomb if close
-    let nearestEnemy: Player | null = null;
-    let minDistance = 100;
-
-    this.state.players.forEach((p, id) => {
-      if (p.alive && p.team !== bot.team) {
-        const dist = Math.sqrt(Math.pow(p.x - bot.x, 2) + Math.pow(p.z - bot.z, 2));
-        if (dist < minDistance) {
-          minDistance = dist;
-          nearestEnemy = p;
-        }
-      }
-    });
-
-    if (nearestEnemy) {
-      const dx = nearestEnemy.x - bot.x;
-      const dz = nearestEnemy.z - bot.z;
-      const step = 0.5;
-
-      let moveX = 0;
-      let moveZ = 0;
-
-      if (Math.abs(dx) > Math.abs(dz)) moveX = dx > 0 ? step : -step;
-      else moveZ = dz > 0 ? step : -step;
-
-      const nextX = bot.x + moveX;
-      const nextZ = bot.z + moveZ;
-
-      const block = this.state.grid.get(`${nextX},${nextZ}`);
-      const bomb = this.state.bombs.get(`${nextX},${nextZ}`);
-      const base = this.state.bases.get(`${nextX},${nextZ}`);
-
-      if (!bomb && !block && (!base || base.team === bot.team)) {
-        bot.x = nextX;
-        bot.z = nextZ;
-      }
-
-      // Randomly place bomb if near enemy
-      if (minDistance < 2 && Math.random() < 0.1) {
-        this.placeBombInternal(bot, sessionId);
-      }
-    }
-  }
-
   placeBombInternal(player: Player, ownerId: string) {
     const x = Math.round(player.x);
     const z = Math.round(player.z);
@@ -276,7 +200,7 @@ export class MyRoom extends Room {
   checkAllReady() {
     let allReady = true;
     this.state.players.forEach(p => {
-      if (!p.ready && !p.isBot) allReady = false;
+      if (!p.ready) allReady = false;
     });
     const hasMinimumPlayers = this.state.players.size >= 2;
 

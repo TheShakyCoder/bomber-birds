@@ -323,7 +323,6 @@ const setupRoomListeners = () => {
             alive: player.alive, 
             loaded: player.loaded,
             team: player.team,
-            isBot: player.isBot,
             coins: player.coins,
             bombRange: player.bombRange,
             x: player.x,
@@ -800,7 +799,7 @@ const buyUpgrade = (item) => {
       <div v-for="(player, id) in playersData" :key="id" class="player-stat" :class="{ 'is-me': id === props.room.sessionId, 'is-dead': !player.alive }">
         <span class="player-dot"></span>
         <span class="player-name">
-          {{ id === props.room.sessionId ? 'You' : (player.isBot ? '[BOT]' : 'Player') }}
+          {{ id === props.room.sessionId ? 'You' : 'Player' }}
         </span>
         <div class="player-coins" v-if="player.coins !== undefined">
           💰 {{ player.coins }}

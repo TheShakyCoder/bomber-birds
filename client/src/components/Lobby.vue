@@ -45,18 +45,13 @@ const setupRoomListeners = (room) => {
     currentCountdown.value = state.countdown || 0;
     const p = {};
     state.players.forEach((player, id) => {
-      p[id] = { ready: player.ready, isBot: player.isBot };
+      p[id] = { ready: player.ready };
     });
     connectedPlayers.value = p;
   });
 };
 
 const totalParticipants = computed(() => Object.keys(connectedPlayers.value).length);
-const canAddBot = computed(() => totalParticipants.value < 20);
-
-const addBot = () => {
-  if (currentRoom.value) currentRoom.value.send("addBot");
-};
 
 onMounted(() => {
   if (currentRoom.value) setupRoomListeners(currentRoom.value);
@@ -95,7 +90,7 @@ const joinRoomHandler = async (roomId) => {
   <div class="lobby-container">
     <div class="lobby-card">
       <header>
-        <h1>Super Bomberman</h1>
+        <h1>Bomber League</h1>
         <p class="subtitle">Multiplayer Arena</p>
       </header>
 
@@ -116,18 +111,15 @@ const joinRoomHandler = async (roomId) => {
         <div class="players-list">
           <div v-for="(player, id) in connectedPlayers" :key="id" class="player-ready-item">
             <span class="player-name">
-              {{ id === currentRoom.sessionId ? 'You' : (player.isBot ? '[BOT]' : 'Player ' + id.substring(0, 4)) }}
+              {{ id === currentRoom.sessionId ? 'You' : 'Player ' + id.substring(0, 4) }}
             </span>
-            <span class="ready-status" :class="{ 'is-ready': player.ready || player.isBot }">
-              {{ (player.ready || player.isBot) ? 'READY' : 'WAITING' }}
+            <span class="ready-status" :class="{ 'is-ready': player.ready }">
+              {{ player.ready ? 'READY' : 'WAITING' }}
             </span>
           </div>
         </div>
 
         <div class="ready-actions">
-          <div class="bot-control-area" v-if="canAddBot">
-            <button @click="addBot" class="btn-secondary bot-btn">Add Bot to Team</button>
-          </div>
 
           <button @click="toggleReady" class="btn-ready"
             :class="{ 'is-ready': connectedPlayers[currentRoom.sessionId]?.ready }">
@@ -431,13 +423,6 @@ h2 {
   gap: 16px;
 }
 
-.bot-control-area {
-  margin-bottom: 20px;
-}
-
-.bot-btn {
-  width: 100%;
-}
 
 .participant-progress {
   margin-top: 24px;
