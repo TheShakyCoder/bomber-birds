@@ -9,9 +9,12 @@ export const GREEK_LETTERS = [
 ];
 
 export const useLobbyStore = defineStore('lobby', () => {
-    const serverUrl = import.meta.env.VITE_WS_URL || "";
-    const endpoint = (serverUrl && !serverUrl.endsWith('/')) ? serverUrl + '/' : serverUrl;
-    const client = new Colyseus.Client(endpoint);
+    let serverUrl = import.meta.env.VITE_WS_URL;
+    if (serverUrl && !serverUrl.endsWith('/')) {
+        serverUrl += '/';
+    }
+    console.log("LobbyStore: Initializing Colyseus with URL:", serverUrl || "DEFAULT (window.location)");
+    const client = new Colyseus.Client(serverUrl);
     
     // State
     const currentRoom = shallowRef(null);
