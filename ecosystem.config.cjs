@@ -9,7 +9,7 @@ module.exports = {
             interpreter: "bun",
             env_production: {
                 NODE_ENV: "production",
-                REDIS_URL: "redis://" + process.env.REDIS_URL,  // Uncomment when Redis is ready
+                REDIS_URL: "redis://10.0.0.6:6379",
             },
         },
     ],
