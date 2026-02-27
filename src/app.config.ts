@@ -12,6 +12,8 @@ import {
 } from "colyseus";
 
 import defineServer from "@colyseus/tools";
+import { RedisPresence } from "@colyseus/redis-presence";
+import { RedisDriver } from "@colyseus/redis-driver";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -25,9 +27,13 @@ import { PartyRoom } from "./rooms/PartyRoom.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+
 const server = defineServer({
     options: {
-        publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS
+        publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS,
+        presence: new RedisPresence({ url: REDIS_URL }),
+        driver: new RedisDriver({ url: REDIS_URL }),
     },
     routes: createRouter({
         "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
@@ -92,7 +98,6 @@ const server = defineServer({
     },
 
     initializeGameServer: async (gameServer: Server) => {
-        // Diagnostic: Check transport and router
         const transport = (gameServer as any).transport;
         const router = (gameServer as any).router;
 
@@ -100,16 +105,23 @@ const server = defineServer({
             transport.bindRouter(router);
         }
 
-        try {
-            const rooms = await matchMaker.query({ name: "my_room" });
-            if (rooms.length === 0) {
-                const room = await matchMaker.createRoom("my_room", { name: "Alpha" });
-                console.log(`[PID ${process.pid}] Server: Bootstrapped room ${room.roomId}`);
-            } else {
-                console.log(`[PID ${process.pid}] Server: Room already exists: ${rooms[0].roomId}`);
+        // Only bootstrap a room from the first PM2 worker to avoid race conditions
+        // in cluster mode. process.env.pm_id is '0' for the primary worker.
+        const isPrimaryWorker = !process.env.pm_id || process.env.pm_id === '0';
+        if (isPrimaryWorker) {
+            try {
+                const rooms = await matchMaker.query({ name: "my_room" });
+                if (rooms.length === 0) {
+                    const room = await matchMaker.createRoom("my_room", { name: "Alpha" });
+                    console.log(`[PID ${process.pid}] Server: Bootstrapped room ${room.roomId}`);
+                } else {
+                    console.log(`[PID ${process.pid}] Server: Room already exists: ${rooms[0].roomId}`);
+                }
+            } catch (e) {
+                console.error(`[PID ${process.pid}] Server: Error during room bootstrapping:`, e);
             }
-        } catch (e) {
-            console.error(`[PID ${process.pid}] Server: Error during room bootstrapping:`, e);
+        } else {
+            console.log(`[PID ${process.pid}] Worker ${process.env.pm_id}: skipping room bootstrap (not primary)`);
         }
     }
 });

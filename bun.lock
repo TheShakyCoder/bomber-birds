@@ -6,6 +6,8 @@
       "name": "my-app",
       "dependencies": {
         "@colyseus/bun-websockets": "^0.17.7",
+        "@colyseus/redis-driver": "^0.17.6",
+        "@colyseus/redis-presence": "^0.17.6",
         "@colyseus/schema": "^4.0.0",
         "@colyseus/tools": "^0.17.0",
         "colyseus": "^0.17.6",
