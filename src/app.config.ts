@@ -32,17 +32,17 @@ const server = defineServer({
         }),
         
         "/ping": createEndpoint("/ping", { method: "GET" }, async (ctx) => {
-            console.log("Server: GET /ping hit");
-            return ctx.json({ status: "pong", time: new Date().toISOString() });
+            console.log(`[PID ${process.pid}] Server: GET /ping hit`);
+            return ctx.json({ status: "pong", time: new Date().toISOString(), pid: process.pid });
         }),
 
         "/api/rooms": createEndpoint("/api/rooms", { method: "GET" }, async (ctx) => {
-            console.log("Server: GET /api/rooms hit");
+            console.log(`[PID ${process.pid}] Server: GET /api/rooms hit`);
             try {
                 const rooms = await matchMaker.query({ name: "my_room" });
                 return ctx.json(rooms);
             } catch (e) {
-                console.error("Server: Error fetching rooms:", e);
+                console.error(`[PID ${process.pid}] Server: Error fetching rooms:`, e);
                 return ctx.json({ error: String(e) }, { status: 500 });
             }
         }),
