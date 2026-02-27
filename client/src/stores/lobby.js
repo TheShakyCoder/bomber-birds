@@ -9,18 +9,33 @@ export const GREEK_LETTERS = [
 ];
 
 export const useLobbyStore = defineStore('lobby', () => {
-    let serverUrl = import.meta.env.VITE_WS_URL;
+    let serverUrl = import.meta.env.VITE_WS_URL || "";
 
     // Smart fallback if environment variables fail to load during build
     if (!serverUrl && window.location.hostname.includes('bomber-league.on-forge.com')) {
-        serverUrl = 'https://bomber-league.on-forge.com/colyseus/';
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        serverUrl = `${protocol}//bomber-league.on-forge.com/colyseus/`;
     }
 
-    if (serverUrl && !serverUrl.endsWith('/')) {
-        serverUrl += '/';
+    // Ensure it's a string and has a protocol if not defaulting
+    if (serverUrl) {
+        if (!serverUrl.endsWith('/')) {
+            serverUrl += '/';
+        }
+        // Ensure https/http is converted to wss/ws for the Colyseus client if needed, 
+        // though the SDK usually handles it, being explicit avoids [object Object] issues.
+        if (serverUrl.startsWith('http')) {
+            serverUrl = serverUrl.replace(/^http/, 'ws');
+        }
     }
-    console.log("LobbyStore: Initializing Colyseus with URL:", serverUrl || "DEFAULT (window.location)");
-    const client = new Colyseus.Client(serverUrl);
+
+    console.log("LobbyStore: Initializing Colyseus", {
+        envUrl: import.meta.env.VITE_WS_URL,
+        hostname: window.location.hostname,
+        finalUrl: serverUrl || "DEFAULT (window.location)"
+    });
+
+    const client = new Colyseus.Client(serverUrl || undefined);
     
     // State
     const currentRoom = shallowRef(null);

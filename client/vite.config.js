@@ -4,8 +4,8 @@ import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file from project root
-  const env = loadEnv(mode, path.resolve(__dirname, '..'), 'VITE_');
+  // Load env file from project root (parent directory of client/)
+  const env = loadEnv(mode, path.resolve(process.cwd(), '..'), 'VITE_');
 
   return {
     plugins: [vue()],
