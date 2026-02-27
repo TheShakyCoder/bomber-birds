@@ -20,6 +20,7 @@ export class MyRoom extends Room {
   turretLastFired: Map<string, number> = new Map(); // key -> timestamp
 
   onCreate(options: any) {
+    console.log(`[PID ${process.pid}] MyRoom: onCreate for room ${this.roomId}`);
     if (options.name) {
       this.state.roomName = options.name;
     } else {
@@ -443,8 +444,13 @@ export class MyRoom extends Room {
     }
   }
 
+  onAuth(client: Client, options: any) {
+    console.log(`[PID ${process.pid}] MyRoom: onAuth for client ${client.sessionId}`);
+    return true;
+  }
+
   onJoin(client: Client, options: any) {
-    console.log(client.sessionId, "joined!");
+    console.log(`[PID ${process.pid}] MyRoom: onJoin for client ${client.sessionId}`);
     const player = new Player();
     player.coins = 100; // Starting coins for testing
 
