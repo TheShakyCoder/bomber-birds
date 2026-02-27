@@ -19,11 +19,11 @@ export const useLobbyStore = defineStore('lobby', () => {
 
     // Ensure it's a string and has a protocol if not defaulting
     if (serverUrl) {
-        if (!serverUrl.endsWith('/')) {
-            serverUrl += '/';
+        // Remove trailing slash if present, as the SDK handles concatenation
+        if (serverUrl.endsWith('/')) {
+            serverUrl = serverUrl.slice(0, -1);
         }
-        // Ensure https/http is converted to wss/ws for the Colyseus client if needed, 
-        // though the SDK usually handles it, being explicit avoids [object Object] issues.
+        // Ensure https/http is converted to wss/ws for the Colyseus client if needed
         if (serverUrl.startsWith('http')) {
             serverUrl = serverUrl.replace(/^http/, 'ws');
         }

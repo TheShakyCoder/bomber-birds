@@ -91,10 +91,12 @@ const server = defineServer({
         }
 
         try {
-            const existingRooms = await matchMaker.query({ name: "my_room" });
-            if (existingRooms.length === 0) {
+            const rooms = await matchMaker.query({ name: "my_room" });
+            if (rooms.length === 0) {
                 const room = await matchMaker.createRoom("my_room", { name: "Alpha" });
                 console.log(`[PID ${process.pid}] Server: Bootstrapped room ${room.roomId}`);
+            } else {
+                console.log(`[PID ${process.pid}] Server: Room already exists: ${rooms[0].roomId}`);
             }
         } catch (e) {
             console.error(`[PID ${process.pid}] Server: Error during room bootstrapping:`, e);
