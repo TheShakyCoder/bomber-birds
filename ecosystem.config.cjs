@@ -1,21 +1,14 @@
-const os = require('os');
-
-/**
- * Colyseus Cloud Deployment Configuration.
- * See documentation: https://docs.colyseus.io/deployment/cloud
- */
-
 module.exports = {
-  apps : [{
-    name: "colyseus-app",
-    script: 'build/index.js',
-    interpreter: 'bun',
-    time: true,
-    watch: false,
-    instances: 1,
-    exec_mode: 'fork',
-    wait_ready: true,
-    max_memory_restart: '2G',
-  }],
+    apps: [
+        {
+            name: "sbm",
+            script: "build/index.js",
+            instances: 1,          // MUST be 1 — Colyseus matchmaker is in-memory
+            exec_mode: "fork",     // NOT cluster — cluster splits WebSocket affinity
+            interpreter: "node",
+            env_production: {
+                NODE_ENV: "production",
+            },
+        },
+    ],
 };
-
