@@ -86,6 +86,39 @@ const server = defineServer({
             return ctx.json({ status: "ok", time: new Date().toISOString() });
         }),
 
+        "/admin/flush-redis": createEndpoint("/admin/flush-redis", { method: "POST" }, async (ctx) => {
+            // Simple secret guard - pass header X-Flush-Secret: bombflush
+            const secret = (ctx.request as Request).headers.get("x-flush-secret");
+            if (secret !== "bombflush") {
+                return ctx.json({ error: "Forbidden" }, { status: 403 });
+            }
+            try {
+                const { RedisPresence } = await import("@colyseus/redis-presence");
+                const presence = new RedisPresence(REDIS_URL) as any;
+                // Access the underlying ioredis client
+                const redis = presence.sub || presence.pub || presence.redis || presence.client;
+                if (!redis) {
+                    return ctx.json({ error: "Could not access Redis client" }, { status: 500 });
+                }
+                let cursor = "0";
+                let deleted = 0;
+                const deletedKeys: string[] = [];
+                do {
+                    const [nextCursor, keys]: [string, string[]] = await redis.scan(cursor, "MATCH", "colyseus:*", "COUNT", 100);
+                    cursor = nextCursor;
+                    if (keys.length) {
+                        await redis.del(...keys);
+                        deleted += keys.length;
+                        deletedKeys.push(...keys);
+                    }
+                } while (cursor !== "0");
+                presence.quit?.();
+                return ctx.json({ deleted, keys: deletedKeys });
+            } catch (e: any) {
+                return ctx.json({ error: String(e.message) }, { status: 500 });
+            }
+        }),
+
         "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
             console.log(`Server: 404 - Route not found: ${ctx.path}`);
             return new Response(`Route not found in router: ${ctx.path}`, { status: 404 });
