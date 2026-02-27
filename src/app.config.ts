@@ -32,8 +32,8 @@ const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const server = defineServer({
     options: {
         publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS,
-        presence: new RedisPresence({ url: REDIS_URL }),
-        driver: new RedisDriver({ url: REDIS_URL }),
+        presence: new RedisPresence(REDIS_URL),
+        driver: new RedisDriver(REDIS_URL),
     },
     routes: createRouter({
         "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
