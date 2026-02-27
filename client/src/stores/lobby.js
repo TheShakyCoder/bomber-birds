@@ -169,6 +169,11 @@ export const useLobbyStore = defineStore('lobby', () => {
             options.partyId = (joinedParty.value.id || joinedParty.value.roomId);
         }
         const room = await client.create("my_room", options);
+        console.log("LobbyStore: Created Room Reservation", {
+            roomId: room.roomId,
+            sessionId: room.sessionId,
+            connection: room.connection?.url
+        });
         onRoomJoined(room);
         if (isPartyLeader()) {
             joinedParty.value.send("startGame", { roomId: (room.id || room.roomId) });
@@ -181,6 +186,11 @@ export const useLobbyStore = defineStore('lobby', () => {
             options.partyId = (joinedParty.value.id || joinedParty.value.roomId);
         }
         const room = await client.joinById(roomId, options);
+        console.log("LobbyStore: Joined Room Reservation", {
+            roomId: room.roomId,
+            sessionId: room.sessionId,
+            connection: room.connection?.url
+        });
         onRoomJoined(room);
         if (isPartyLeader()) {
             joinedParty.value.send("startGame", { roomId: (room.id || room.roomId) });

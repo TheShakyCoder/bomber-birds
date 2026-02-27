@@ -33,7 +33,12 @@ const server = defineServer({
         
         "/ping": createEndpoint("/ping", { method: "GET" }, async (ctx) => {
             console.log(`[PID ${process.pid}] Server: GET /ping hit`);
-            return ctx.json({ status: "pong", time: new Date().toISOString(), pid: process.pid });
+            return ctx.json({ 
+                status: "pong", 
+                time: new Date().toISOString(), 
+                pid: process.pid,
+                publicAddress: (matchMaker as any).publicAddress
+            });
         }),
 
         "/api/rooms": createEndpoint("/api/rooms", { method: "GET" }, async (ctx) => {
