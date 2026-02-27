@@ -10,6 +10,12 @@ export const GREEK_LETTERS = [
 
 export const useLobbyStore = defineStore('lobby', () => {
     let serverUrl = import.meta.env.VITE_WS_URL;
+
+    // Smart fallback if environment variables fail to load during build
+    if (!serverUrl && window.location.hostname.includes('bomber-league.on-forge.com')) {
+        serverUrl = 'https://bomber-league.on-forge.com/colyseus/';
+    }
+
     if (serverUrl && !serverUrl.endsWith('/')) {
         serverUrl += '/';
     }
