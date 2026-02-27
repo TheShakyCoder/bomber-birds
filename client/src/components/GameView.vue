@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, onUnmounted, ref, computed } from 'vue';
+import flareUrl from '../assets/flare.png?url';
 import * as BABYLON from '@babylonjs/core';
 import "@babylonjs/materials";
 
@@ -610,7 +611,7 @@ const createExplosionEffect = (x, z) => {
   const particleSystem = new BABYLON.ParticleSystem("particles", 200, scene);
 
   // Texture of each particle
-  particleSystem.particleTexture = new BABYLON.Texture("https://raw.githubusercontent.com/PatrickRyanMS/BabylonJS_Resources/master/ParticleSystem/Assets/flare.png", scene);
+  particleSystem.particleTexture = new BABYLON.Texture(flareUrl, scene);
 
   // Where the particles come from
   particleSystem.emitter = new BABYLON.Vector3(x, 0.5, z); // Position of the explosion
