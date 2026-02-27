@@ -53,11 +53,26 @@ const setupRoomListeners = (room) => {
 
 const totalParticipants = computed(() => Object.keys(connectedPlayers.value).length);
 
+
+const now = ref(Date.now());
+
+const formatElapsed = (startedAt) => {
+  const secs = Math.floor((now.value - startedAt) / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`;
+};
+
 onMounted(() => {
   if (currentRoom.value) setupRoomListeners(currentRoom.value);
   fetchRooms();
   const refreshInterval = setInterval(fetchRooms, 3000);
-  onUnmounted(() => clearInterval(refreshInterval));
+  const tickInterval = setInterval(() => { now.value = Date.now(); }, 1000);
+  onUnmounted(() => {
+    clearInterval(refreshInterval);
+    clearInterval(tickInterval);
+  });
 });
 
 watch(currentRoom, (newRoom) => {
@@ -209,7 +224,17 @@ const joinRoomHandler = async (roomId) => {
             <div v-for="room in rooms" :key="room.roomId" class="room-item">
               <div class="room-meta">
                 <h3>{{ room.metadata?.name || 'Unnamed Zone' }}</h3>
-                <span class="player-count">{{ room.clients }} Open Slots</span>
+                <div class="room-stats">
+                  <span class="room-stat players-stat">
+                    <span class="stat-icon">👥</span> {{ room.clients }} {{ room.clients === 1 ? 'player' : 'players' }}
+                  </span>
+                  <span v-if="room.metadata?.gameStarted && room.metadata?.gameStartedAt" class="room-stat running-stat">
+                    <span class="stat-icon">⏱</span> {{ formatElapsed(room.metadata.gameStartedAt) }}
+                  </span>
+                  <span v-else class="room-stat lobby-stat">
+                    <span class="stat-icon">🟡</span> Lobby
+                  </span>
+                </div>
               </div>
               <button @click="joinRoomHandler(room.roomId)" class="btn-join-room">Engage</button>
             </div>
@@ -652,9 +677,42 @@ code {
   color: #e2e8f0;
 }
 
-.player-count {
+.room-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.room-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stat-icon {
   font-size: 0.75rem;
-  color: #64748b;
+}
+
+.players-stat {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+}
+
+.running-stat {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+}
+
+.lobby-stat {
+  background: rgba(234, 179, 8, 0.15);
+  color: #fde047;
 }
 
 .btn-join-room {

@@ -216,6 +216,8 @@ export class MyRoom extends Room {
             this.countdownInterval = null;
             // Clear turret fire timers on game start (just in case)
             this.turretLastFired.clear();
+            // Stamp start time in public metadata for lobby display
+            this.setMetadata({ name: this.state.roomName, gameStarted: true, gameStartedAt: Date.now() });
           }
         }, 1000);
       }
