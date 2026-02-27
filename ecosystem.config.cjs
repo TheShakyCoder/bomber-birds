@@ -6,7 +6,7 @@ module.exports = {
             // TODO: Switch to instances: "max" + exec_mode: "cluster" once Redis is ready
             instances: 1,
             exec_mode: "fork",
-            interpreter: "bun",
+            interpreter: "node",
             env_production: {
                 NODE_ENV: "production",
                 REDIS_URL: "redis://10.0.0.6:6379",
@@ -15,6 +15,7 @@ module.exports = {
                 VITE_SERVER_URL: "https://bomber-birds.on-forge.com/colyseus/",
                 VITE_WS_URL: "wss://bomber-birds.on-forge.com/colyseus/",
                 VITE_ORIGIN: "https://bomber-birds.on-forge.com",
+                COLYSEUS_PUBLIC_ADDRESS: "bomber-birds.on-forge.com/colyseus",
             },
         },
     ],
