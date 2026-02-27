@@ -4,12 +4,12 @@ module.exports = {
             name: "sbm",
             script: "build/index.js",
             // TODO: Switch to instances: "max" + exec_mode: "cluster" once Redis is ready
-            instances: 1,
-            exec_mode: "fork",
+            instances: "max",
+            exec_mode: "cluster",
             interpreter: "node",
             env_production: {
                 NODE_ENV: "production",
-                // REDIS_URL: "redis://<YOUR_REDIS_SERVER_IP>:6379",  // Uncomment when Redis is ready
+                REDIS_URL: "redis://" + process.env.REDIS_URL,  // Uncomment when Redis is ready
             },
         },
     ],
