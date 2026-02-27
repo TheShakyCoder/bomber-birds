@@ -9,7 +9,6 @@ module.exports = {
             interpreter: "node",
             env_production: {
                 NODE_ENV: "production",
-                REDIS_URL: "redis://10.0.0.6:6379",
                 VITE_SERVER_PORT: 2567,
                 VITE_DOMAIN: "bomber-birds.on-forge.com",
                 VITE_SERVER_URL: "https://bomber-birds.on-forge.com/colyseus/",

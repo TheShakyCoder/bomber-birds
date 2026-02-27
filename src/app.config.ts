@@ -27,14 +27,23 @@ import { PartyRoom } from "./rooms/PartyRoom.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const REDIS_URL = process.env.REDIS_URL;
+
+// Build server options — only use Redis if REDIS_URL is explicitly provided
+const serverOptions: any = {
+    publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS,
+};
+
+if (REDIS_URL) {
+    console.log(`Using Redis at ${REDIS_URL}`);
+    serverOptions.presence = new RedisPresence(REDIS_URL);
+    serverOptions.driver = new RedisDriver(REDIS_URL);
+} else {
+    console.log("No REDIS_URL set — using in-memory presence/driver (single instance mode)");
+}
 
 const server = defineServer({
-    options: {
-        publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS,
-        presence: new RedisPresence(REDIS_URL),
-        driver: new RedisDriver(REDIS_URL),
-    },
+    options: serverOptions,
     routes: createRouter({
         "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
             return new Response("Colyseus Server is Running!");
