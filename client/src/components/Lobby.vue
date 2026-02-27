@@ -88,7 +88,11 @@ const createRoomHandler = async () => {
         lobbyStore.errorMessage = "Only the party leader can create a room.";
         return;
     }
-    await createGameRoom({ name: newRoomName.value });
+    try {
+        await createGameRoom({ name: newRoomName.value });
+    } catch (e) {
+        lobbyStore.errorMessage = "Failed to create room: " + (e.message || e);
+    }
 };
 
 const joinRoomHandler = async (roomId) => {
@@ -96,7 +100,11 @@ const joinRoomHandler = async (roomId) => {
         lobbyStore.errorMessage = "Only the party leader can join a room manually.";
         return;
     }
-    await joinGameRoom(roomId);
+    try {
+        await joinGameRoom(roomId);
+    } catch (e) {
+        lobbyStore.errorMessage = "Failed to join room: " + (e.message || e);
+    }
 };
 
 </script>

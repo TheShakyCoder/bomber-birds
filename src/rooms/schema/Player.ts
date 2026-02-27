@@ -9,6 +9,7 @@ export class Player extends Schema {
     @type("number") team: number = -1;
     @type("string") partyId: string = "";
     @type("boolean") loaded: boolean = false;
+    @type("boolean") isBot: boolean = false; // Kept for Redis schema backward compat — unused
     @type("number") deathCount: number = 0;
     @type("number") respawnTimestamp: number = 0;
     @type("number") coins: number = 0;
