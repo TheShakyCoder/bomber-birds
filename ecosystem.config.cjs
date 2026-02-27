@@ -4,8 +4,8 @@ module.exports = {
             name: "sbm",
             script: "build/index.js",
             // TODO: Switch to instances: "max" + exec_mode: "cluster" once Redis is ready
-            instances: "max",
-            exec_mode: "cluster",
+            instances: 1,
+            exec_mode: "fork",
             interpreter: "bun",
             env_production: {
                 NODE_ENV: "production",
