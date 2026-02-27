@@ -30,6 +30,11 @@ const server = defineServer({
         "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
             return new Response("Colyseus Server is Running!");
         }),
+        
+        "/ping": createEndpoint("/ping", { method: "GET" }, async (ctx) => {
+            console.log("Server: GET /ping hit");
+            return ctx.json({ status: "pong", time: new Date().toISOString() });
+        }),
 
         "/api/rooms": createEndpoint("/api/rooms", { method: "GET" }, async (ctx) => {
             console.log("Server: GET /api/rooms hit");
@@ -66,6 +71,7 @@ const server = defineServer({
         }),
 
         "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
+            console.log(`Server: 404 - Route not found: ${ctx.path}`);
             return new Response(`Route not found in router: ${ctx.path}`, { status: 404 });
         }),
     }),
