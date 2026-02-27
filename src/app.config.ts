@@ -34,10 +34,12 @@ const server = defineServer({
         "/ping": createEndpoint("/ping", { method: "GET" }, async (ctx) => {
             console.log(`[PID ${process.pid}] Server: GET /ping hit`);
             return ctx.json({ 
+                envUrl: process.env.VITE_WS_URL || "LFC",
                 status: "pong", 
                 time: new Date().toISOString(), 
                 pid: process.pid,
-                publicAddress: (matchMaker as any).publicAddress
+                publicAddress: (matchMaker as any).publicAddress || "EFC",
+                colyseusEnv: process.env.COLYSEUS_PUBLIC_ADDRESS || "MISSING"
             });
         }),
 
