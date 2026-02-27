@@ -32,10 +32,12 @@ const server = defineServer({
         }),
 
         "/api/rooms": createEndpoint("/api/rooms", { method: "GET" }, async (ctx) => {
+            console.log("Server: GET /api/rooms hit");
             try {
                 const rooms = await matchMaker.query({ name: "my_room" });
                 return ctx.json(rooms);
             } catch (e) {
+                console.error("Server: Error fetching rooms:", e);
                 return ctx.json({ error: String(e) }, { status: 500 });
             }
         }),
