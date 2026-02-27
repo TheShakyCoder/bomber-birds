@@ -169,6 +169,9 @@ export const useLobbyStore = defineStore('lobby', () => {
         if (joinedParty.value) {
             options.partyId = (joinedParty.value.id || joinedParty.value.roomId);
         }
+        console.log("LobbyStore: Creating Room Reservation", {
+            options
+        });
         const room = await client.create("my_room", options);
         console.log("LobbyStore: Created Room Reservation", {
             roomId: room.roomId,
