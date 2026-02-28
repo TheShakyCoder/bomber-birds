@@ -7,7 +7,7 @@ This project has been created using [⚔️ `create-colyseus-app`](https://githu
 ## :crossed_swords: Usage
 
 ```
-npm start
+bun run start --hot
 ```
 
 ## Structure
@@ -27,3 +27,7 @@ npm start
 ## License
 
 MIT
+
+
+after git push, run on the server:
+pm2 delete all && pm2 start ecosystem.config.cjs --env production && pm2 save

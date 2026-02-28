@@ -99,7 +99,7 @@ export class MyRoom extends Room {
           const coinKey = `${Math.round(nextX)},${Math.round(nextZ)}`;
           if (this.state.coins.has(coinKey)) {
             this.state.coins.delete(coinKey);
-            player.coins += 10;
+            player.coins += 1;
           }
         }
       }
@@ -413,7 +413,7 @@ export class MyRoom extends Room {
       const block = this.state.grid.get(key);
       if (block && block.type === "destructible") {
         this.state.grid.delete(key);
-        if (owner) owner.coins += 10;
+        if (owner) owner.coins += 1;
         const coin = new Coin();
         coin.x = tx;
         coin.z = tz;
