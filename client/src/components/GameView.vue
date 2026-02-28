@@ -28,6 +28,7 @@ const playersData = ref({});
 const basesHealth = ref({}); // team -> { health, isTurret }
 const syncTimeoutReached = ref(false);
 const showShop = ref(false);
+let mouseWorldPos = { x: 0, z: 0 }; // tracked via pointer observable
 
 const totalPlayers = computed(() => Object.keys(playersData.value).length || 0);
 const loadedPlayers = computed(() => {
@@ -77,11 +78,17 @@ const isOnBase = computed(() => {
     return onOurTerritory;
 });
 
-const upgradeCost = computed(() => {
+const getUpgradeCost = (stat) => {
     const me = playersData.value[props.room.sessionId];
     if (!me) return 0;
-    return 50 + (me.bombRange - 1) * 50;
-});
+    if (stat === 'weaponRange') {
+        const dirCosts = { 1: 50, 4: 75, 8: 100 };
+        const dirCost = dirCosts[me.weaponDirections] || 75;
+        return dirCost + (me.weaponRange - 1) * dirCost;
+    }
+    const costs = { health: 40, armor: 60, attack: 50, critDamage: 80, critChance: 70, moveSpeed: 100 };
+    return costs[stat] || 50;
+};
 
 onMounted(() => {
   initBabylon();
@@ -109,6 +116,18 @@ const initBabylon = () => {
   engine = new BABYLON.Engine(canvasRef.value, true);
   scene = new BABYLON.Scene(engine);
   scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.1, 1);
+
+  // Track mouse world position (ground plane y=0) for aim direction
+  scene.onPointerObservable.add((pointerInfo) => {
+    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
+      const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, BABYLON.Matrix.Identity(), camera);
+      if (ray.direction.y !== 0) {
+        const t = -ray.origin.y / ray.direction.y;
+        mouseWorldPos.x = ray.origin.x + ray.direction.x * t;
+        mouseWorldPos.z = ray.origin.z + ray.direction.z * t;
+      }
+    }
+  });
 
   camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 3, 20, new BABYLON.Vector3(7, 0, 7), scene);
   camera.attachControl(canvasRef.value, true);
@@ -320,11 +339,19 @@ const setupRoomListeners = () => {
         // Update reactive data for HUD and Loading Screen
         pData[sessionId] = { 
             health: player.health, 
+            maxHealth: player.maxHealth,
             alive: player.alive, 
             loaded: player.loaded,
             team: player.team,
             coins: player.coins,
-            bombRange: player.bombRange,
+            birdType: player.birdType,
+            armor: player.armor,
+            attack: player.attack,
+            critDamage: player.critDamage,
+            critChance: player.critChance,
+            weaponDirections: player.weaponDirections,
+            weaponRange: player.weaponRange,
+            moveSpeed: player.moveSpeed,
             x: player.x,
             z: player.z
         };
@@ -706,14 +733,28 @@ const updateRangePreview = () => {
 
   const x = Math.round(me.x);
   const z = Math.round(me.z);
-  const range = me.bombRange || 1;
+  const range = me.weaponRange || 2;
+  const dirs = me.weaponDirections || 4;
   const tiles = [{ x, z }];
 
-  for (let i = 1; i <= range; i++) {
-    tiles.push({ x: x + i, z });
-    tiles.push({ x: x - i, z });
-    tiles.push({ x, z: z + i });
-    tiles.push({ x, z: z - i });
+  if (dirs === 4) {
+    for (let i = 1; i <= range; i++) {
+      tiles.push({ x: x + i, z }, { x: x - i, z }, { x, z: z + i }, { x, z: z - i });
+    }
+  } else if (dirs === 1) {
+    // Aim toward mouse position, snapped to 8 directions
+    const rawDx = mouseWorldPos.x - x;
+    const rawDz = mouseWorldPos.z - z;
+    const angle = Math.atan2(rawDz, rawDx);
+    const octant = Math.round(angle / (Math.PI / 4));
+    const snapMap = { 0: [1,0], 1: [1,1], 2: [0,1], 3: [-1,1], 4: [-1,0], '-1': [1,-1], '-2': [0,-1], '-3': [-1,-1], '-4': [-1,0] };
+    const [adx, adz] = snapMap[octant] || [0, 1];
+    for (let i = 1; i <= range; i++) tiles.push({ x: x + adx * i, z: z + adz * i });
+  } else if (dirs === 8) {
+    for (let i = 1; i <= range; i++) {
+      tiles.push({ x: x + i, z }, { x: x - i, z }, { x, z: z + i }, { x, z: z - i });
+      tiles.push({ x: x + i, z: z + i }, { x: x - i, z: z + i }, { x: x + i, z: z - i }, { x: x - i, z: z - i });
+    }
   }
 
   // Reuse or recreate meshes
@@ -779,7 +820,32 @@ const handleKeyDown = (e) => {
         else if (team === 2) move = { dx: 0, dz: -1 };
         else if (team === 3) move = { dx: 0, dz: 1 };
         break;
-    case ' ': props.room.send("placeBomb"); break;
+    case ' ':
+      const me = playersData.value[props.room.sessionId];
+      if (me) {
+        // Calculate aim direction from player to mouse for 1-dir birds
+        const rawDx = mouseWorldPos.x - me.x;
+        const rawDz = mouseWorldPos.z - me.z;
+        const angle = Math.atan2(rawDz, rawDx);
+        // Snap to nearest of 8 directions
+        const octant = Math.round(angle / (Math.PI / 4));
+        const snapAngles = {
+          0:  { dx: 1,  dz: 0 },
+          1:  { dx: 1,  dz: 1 },
+          2:  { dx: 0,  dz: 1 },
+          3:  { dx: -1, dz: 1 },
+          4:  { dx: -1, dz: 0 },
+          '-1': { dx: 1,  dz: -1 },
+          '-2': { dx: 0,  dz: -1 },
+          '-3': { dx: -1, dz: -1 },
+          '-4': { dx: -1, dz: 0 },
+        };
+        const aim = snapAngles[octant] || { dx: 0, dz: 1 };
+        props.room.send("placeBomb", { aimDx: aim.dx, aimDz: aim.dz });
+      } else {
+        props.room.send("placeBomb");
+      }
+      break;
   }
 
   if (move) {
@@ -801,11 +867,18 @@ const buyUpgrade = (item) => {
         <span class="player-name">
           {{ id === props.room.sessionId ? 'You' : 'Player' }}
         </span>
+        <span class="bird-badge" v-if="player.birdType">{{ { eagle: '🦅', falcon: '🐦', robin: '🐤', parrot: '🦜', crow: '🐦‍⬛', penguin: '🐧' }[player.birdType] || '🐤' }}</span>
         <div class="player-coins" v-if="player.coins !== undefined">
           💰 {{ player.coins }}
         </div>
         <div class="health-bar-bg">
-          <div class="health-bar-fill" :style="{ width: player.health + '%' }"></div>
+          <div class="health-bar-fill" :style="{ width: (player.health / (player.maxHealth || 100) * 100) + '%' }"></div>
+        </div>
+        <div class="player-stat-pills" v-if="id === props.room.sessionId">
+          <span>⚔️{{ player.attack }}</span>
+          <span>🛡️{{ player.armor }}</span>
+          <span>💥{{ player.weaponRange }}</span>
+          <span>🎯{{ player.weaponDirections === 1 ? '1d' : player.weaponDirections === 8 ? '8d' : '4d' }}</span>
         </div>
       </div>
     </div>
@@ -858,21 +931,68 @@ const buyUpgrade = (item) => {
     <div v-if="showShop" class="shop-modal" @click.self="showShop = false">
         <div class="shop-card">
             <div class="shop-header">
-                <h2>BASE ARMORY</h2>
+                <h2>UPGRADE SHOP</h2>
                 <button @click="showShop = false" class="close-shop">&times;</button>
             </div>
             <div class="shop-items">
                 <div class="shop-item">
                     <div class="item-info">
-                        <h3>Extra Range</h3>
-                        <p>Increase bomb explosion radius. Current: +{{ (playersData[props.room.sessionId]?.bombRange || 1) - 1 }}</p>
+                        <h3>💥 Weapon Range</h3>
+                        <p>Current: {{ playersData[props.room.sessionId]?.weaponRange || 2 }}</p>
                     </div>
-                    <button 
-                        @click="buyUpgrade('bombRange')" 
-                        class="btn-buy"
-                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < upgradeCost"
-                    >
-                        💰 {{ upgradeCost }}
+                    <button @click="buyUpgrade('weaponRange')" class="btn-buy"
+                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < getUpgradeCost('weaponRange')">
+                        💰 {{ getUpgradeCost('weaponRange') }}
+                    </button>
+                </div>
+                <div class="shop-item">
+                    <div class="item-info">
+                        <h3>❤️ Health</h3>
+                        <p>Current: {{ playersData[props.room.sessionId]?.maxHealth || 100 }}</p>
+                    </div>
+                    <button @click="buyUpgrade('health')" class="btn-buy"
+                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < getUpgradeCost('health')">
+                        💰 {{ getUpgradeCost('health') }}
+                    </button>
+                </div>
+                <div class="shop-item">
+                    <div class="item-info">
+                        <h3>⚔️ Attack</h3>
+                        <p>Current: {{ playersData[props.room.sessionId]?.attack || 50 }}</p>
+                    </div>
+                    <button @click="buyUpgrade('attack')" class="btn-buy"
+                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < getUpgradeCost('attack')">
+                        💰 {{ getUpgradeCost('attack') }}
+                    </button>
+                </div>
+                <div class="shop-item">
+                    <div class="item-info">
+                        <h3>🛡️ Armor</h3>
+                        <p>Current: {{ playersData[props.room.sessionId]?.armor || 0 }}</p>
+                    </div>
+                    <button @click="buyUpgrade('armor')" class="btn-buy"
+                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < getUpgradeCost('armor')">
+                        💰 {{ getUpgradeCost('armor') }}
+                    </button>
+                </div>
+                <div class="shop-item">
+                    <div class="item-info">
+                        <h3>🎯 Crit Chance</h3>
+                        <p>Current: {{ playersData[props.room.sessionId]?.critChance || 10 }}%</p>
+                    </div>
+                    <button @click="buyUpgrade('critChance')" class="btn-buy"
+                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < getUpgradeCost('critChance')">
+                        💰 {{ getUpgradeCost('critChance') }}
+                    </button>
+                </div>
+                <div class="shop-item">
+                    <div class="item-info">
+                        <h3>🏃 Move Speed</h3>
+                        <p>Current: {{ playersData[props.room.sessionId]?.moveSpeed || 1 }}×</p>
+                    </div>
+                    <button @click="buyUpgrade('moveSpeed')" class="btn-buy"
+                        :disabled="(playersData[props.room.sessionId]?.coins || 0) < getUpgradeCost('moveSpeed')">
+                        💰 {{ getUpgradeCost('moveSpeed') }}
                     </button>
                 </div>
             </div>
@@ -1109,6 +1229,25 @@ canvas {
     height: 100%;
     background: #10b981;
     transition: width 0.3s ease;
+}
+
+.bird-badge {
+    font-size: 0.9rem;
+    margin-left: 2px;
+}
+
+.player-stat-pills {
+    display: flex;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.player-stat-pills span {
+    font-size: 0.55rem;
+    background: rgba(148, 163, 184, 0.15);
+    padding: 1px 4px;
+    border-radius: 6px;
+    color: #94a3b8;
 }
 
 .victory-overlay {

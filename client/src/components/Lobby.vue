@@ -107,6 +107,24 @@ const joinRoomHandler = async (roomId) => {
     }
 };
 
+const selectedBird = ref('robin');
+
+const BIRD_DATA = {
+  eagle:   { name: 'Eagle',   emoji: '🦅', dirs: 1, hp: 100, atk: 60, armor: 5,  crit: '10% × 1.5', range: 4, speed: 1, desc: 'Sniper — long range, high damage, single direction' },
+  falcon:  { name: 'Falcon',  emoji: '🐦', dirs: 1, hp: 80,  atk: 40, armor: 0,  crit: '30% × 2.0', range: 3, speed: 2, desc: 'Assassin — fast, high crit, glass cannon' },
+  robin:   { name: 'Robin',   emoji: '🐤', dirs: 4, hp: 100, atk: 50, armor: 5,  crit: '10% × 1.5', range: 2, speed: 1, desc: 'Balanced — good all-rounder' },
+  parrot:  { name: 'Parrot',  emoji: '🦜', dirs: 4, hp: 150, atk: 40, armor: 15, crit: '5% × 1.2',  range: 2, speed: 1, desc: 'Tank — high HP & armor, tough to kill' },
+  crow:    { name: 'Crow',    emoji: '🐦‍⬛', dirs: 8, hp: 100, atk: 35, armor: 5,  crit: '15% × 1.5', range: 2, speed: 1, desc: 'Area control — 8-dir blast, moderate power' },
+  penguin: { name: 'Penguin', emoji: '🐧', dirs: 8, hp: 130, atk: 30, armor: 20, crit: '5% × 1.2',  range: 1, speed: 1, desc: 'Bruiser — tanky 8-dir, short range' },
+};
+
+const selectBirdHandler = (birdKey) => {
+  selectedBird.value = birdKey;
+  if (currentRoom.value) {
+    currentRoom.value.send("selectBird", { birdType: birdKey });
+  }
+};
+
 </script>
 
 <template>
@@ -139,6 +157,27 @@ const joinRoomHandler = async (roomId) => {
             <span class="ready-status" :class="{ 'is-ready': player.ready }">
               {{ player.ready ? 'READY' : 'WAITING' }}
             </span>
+          </div>
+        </div>
+
+        <div class="bird-selection">
+          <h3>Choose Your Bird</h3>
+          <div class="bird-grid">
+            <div v-for="(bird, key) in BIRD_DATA" :key="key"
+              class="bird-card" :class="{ selected: selectedBird === key }"
+              @click="selectBirdHandler(key)">
+              <span class="bird-emoji">{{ bird.emoji }}</span>
+              <span class="bird-name">{{ bird.name }}</span>
+              <span class="bird-desc">{{ bird.desc }}</span>
+              <div class="bird-stats">
+                <span>❤️ {{ bird.hp }}</span>
+                <span>⚔️ {{ bird.atk }}</span>
+                <span>🛡️ {{ bird.armor }}</span>
+                <span>🎯 {{ bird.dirs === 1 ? '1-dir' : bird.dirs === 4 ? '4-dir' : '8-dir' }}</span>
+                <span>💥 {{ bird.range }}</span>
+                <span>🏃 {{ bird.speed }}×</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -778,5 +817,82 @@ code {
     background: #10b981;
     border-color: #10b981;
     color: white;
+}
+
+/* Bird Selection */
+.bird-selection {
+  margin: 16px 0;
+}
+
+.bird-selection h3 {
+  font-size: 0.9rem;
+  color: #94a3b8;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.bird-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.bird-card {
+  background: rgba(30, 41, 59, 0.8);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.bird-card:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(30, 41, 59, 1);
+  transform: translateY(-2px);
+}
+
+.bird-card.selected {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+}
+
+.bird-emoji {
+  font-size: 1.8rem;
+}
+
+.bird-name {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #e2e8f0;
+}
+
+.bird-desc {
+  font-size: 0.6rem;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.bird-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.bird-stats span {
+  font-size: 0.55rem;
+  background: rgba(148, 163, 184, 0.1);
+  padding: 1px 5px;
+  border-radius: 8px;
+  color: #94a3b8;
 }
 </style>

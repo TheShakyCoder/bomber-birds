@@ -6,6 +6,7 @@ import { Base } from "./schema/Base.js";
 import { Bomb } from "./schema/Bomb.js";
 import { Tower } from "./schema/Tower.js";
 import { Coin } from "./schema/Coin.js";
+import { BIRD_CONFIGS, RANGE_UPGRADE_COST, STAT_UPGRADE_COSTS, STAT_UPGRADE_AMOUNTS } from "./BirdConfig.js";
 
 const GREEK_LETTERS = [
   'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta',
@@ -29,20 +30,53 @@ export class MyRoom extends Room {
     }
     this.setMetadata({ name: this.state.roomName });
 
-    this.onMessage("placeBomb", (client) => {
+    this.onMessage("placeBomb", (client, message) => {
       if (!this.state.gameStarted) return;
       const player = this.state.players.get(client.sessionId);
       if (player && player.alive) {
+        // Update aim direction from client (used by 1-dir birds)
+        if (message && message.aimDx !== undefined && message.aimDz !== undefined) {
+          player.lastDx = message.aimDx;
+          player.lastDz = message.aimDz;
+        }
         this.placeBombInternal(player, client.sessionId);
       }
+    });
+
+    this.onMessage("selectBird", (client, message) => {
+      if (this.state.gameStarted) return;
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const birdType = message.birdType;
+      const config = BIRD_CONFIGS[birdType];
+      if (!config) return;
+      player.birdType = birdType;
+      player.health = config.health;
+      player.maxHealth = config.health;
+      player.armor = config.armor;
+      player.attack = config.attack;
+      player.critDamage = config.critDamage;
+      player.critChance = config.critChance;
+      player.weaponDirections = config.weaponDirections;
+      player.weaponRange = config.weaponRange;
+      player.moveSpeed = config.moveSpeed;
+      console.log(`Player ${client.sessionId} selected bird: ${birdType}`);
     });
 
     this.onMessage("move", (client, message) => {
       if (!this.state.gameStarted) return;
       const player = this.state.players.get(client.sessionId);
       if (player && player.alive) {
-        const nextX = player.x + (message.dx || 0);
-        const nextZ = player.z + (message.dz || 0);
+        const dx = message.dx || 0;
+        const dz = message.dz || 0;
+        const nextX = player.x + dx;
+        const nextZ = player.z + dz;
+
+        // Track facing direction for 1-dir birds
+        if (dx !== 0 || dz !== 0) {
+          player.lastDx = dx;
+          player.lastDz = dz;
+        }
 
         // Simple collision detection (grid blocks or bombs or enemy bases)
         const block = this.state.grid.get(`${nextX},${nextZ}`);
@@ -66,7 +100,6 @@ export class MyRoom extends Room {
           if (this.state.coins.has(coinKey)) {
             this.state.coins.delete(coinKey);
             player.coins += 10;
-            console.log(`Player ${client.sessionId} picked up a coin at ${coinKey}. Total: ${player.coins}`);
           }
         }
       }
@@ -92,13 +125,24 @@ export class MyRoom extends Room {
     this.onMessage("buyItem", (client, message) => {
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
+      const item = message.item;
 
-      if (message.item === "bombRange") {
-        const cost = 50 + (player.bombRange - 1) * 50;
+      if (item === "weaponRange") {
+        const dirCost = RANGE_UPGRADE_COST[player.weaponDirections] || 75;
+        const cost = dirCost + (player.weaponRange - 1) * dirCost;
         if (player.coins >= cost) {
           player.coins -= cost;
-          player.bombRange++;
-          console.log(`Player ${client.sessionId} bought bombRange. Now ${player.bombRange}`);
+          player.weaponRange++;
+          console.log(`Player ${client.sessionId} upgraded weaponRange to ${player.weaponRange} (cost ${cost})`);
+        }
+      } else if (STAT_UPGRADE_COSTS[item] !== undefined && item !== "weaponRange") {
+        const cost = STAT_UPGRADE_COSTS[item];
+        const amount = STAT_UPGRADE_AMOUNTS[item];
+        if (player.coins >= cost) {
+          player.coins -= cost;
+          (player as any)[item] += amount;
+          if (item === "health") player.maxHealth += amount;
+          console.log(`Player ${client.sessionId} upgraded ${item} by ${amount} (cost ${cost})`);
         }
       }
     });
@@ -118,10 +162,10 @@ export class MyRoom extends Room {
   update(deltaTime: number) {
     const now = Date.now();
     this.state.players.forEach((player, sessionId) => {
-      if (player.alive && player.health < 100) {
+      if (player.alive && player.health < player.maxHealth) {
         const base = this.state.bases.get(`${Math.round(player.x)},${Math.round(player.z)}`);
         if (base && base.team === player.team) {
-          player.health = Math.min(100, player.health + (10 * deltaTime / 1000));
+          player.health = Math.min(player.maxHealth, player.health + (10 * deltaTime / 1000));
         }
       }
     });
@@ -192,6 +236,14 @@ export class MyRoom extends Room {
       bomb.ownerId = ownerId;
       bomb.team = player.team;
       bomb.explosionTimestamp = Date.now() + 3000;
+      // Lock in player stats at placement time
+      bomb.aimDx = player.lastDx;
+      bomb.aimDz = player.lastDz;
+      bomb.weaponDirections = player.weaponDirections;
+      bomb.weaponRange = player.weaponRange;
+      bomb.attack = player.attack;
+      bomb.critDamage = player.critDamage;
+      bomb.critChance = player.critChance;
       this.state.bombs.set(bombKey, bomb);
       this.clock.setTimeout(() => this.explode(x, z), 3000);
     }
@@ -285,73 +337,113 @@ export class MyRoom extends Room {
     }
   }
 
+  getExplosionDirections(owner: Player | null): { dx: number, dz: number }[] {
+    const dirs: { dx: number, dz: number }[] = [];
+    if (!owner || owner.weaponDirections === 4) {
+      // Standard 4-dir cross
+      dirs.push({ dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 });
+    } else if (owner.weaponDirections === 1) {
+      // Single direction based on last move
+      dirs.push({ dx: owner.lastDx, dz: owner.lastDz });
+    } else if (owner.weaponDirections === 8) {
+      // 8 directions: cross + diagonals
+      dirs.push(
+        { dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 },
+        { dx: 1, dz: 1 }, { dx: -1, dz: 1 }, { dx: 1, dz: -1 }, { dx: -1, dz: -1 }
+      );
+    }
+    return dirs;
+  }
+
+  calculateDamage(attacker: Player | null): number {
+    const baseAttack = attacker ? attacker.attack : 50;
+    const critChance = attacker ? attacker.critChance : 0;
+    const critMultiplier = attacker ? attacker.critDamage : 1;
+    const isCrit = Math.random() * 100 < critChance;
+    return isCrit ? Math.floor(baseAttack * critMultiplier) : baseAttack;
+  }
+
+  applyDamageToPlayer(damage: number, player: Player): number {
+    const effectiveDamage = Math.max(1, damage - player.armor);
+    player.health -= effectiveDamage;
+    return effectiveDamage;
+  }
+
   explode(x: number, z: number) {
     const bombKey = `${x},${z}`;
     const bomb = this.state.bombs.get(bombKey);
-    let range = 1;
-    let owner: Player | null = null;
-    if (bomb) {
-      owner = this.state.players.get(bomb.ownerId);
-      if (owner) range = owner.bombRange;
-    }
+    if (!bomb) return;
+
+    // Read everything from the bomb (locked in at placement)
+    const range = bomb.weaponRange;
+    const dirs = bomb.weaponDirections;
+    const owner = this.state.players.get(bomb.ownerId);
     
     this.state.bombs.delete(bombKey);
 
-    const directions = [
-      { dx: 0, dz: 0 } // Center
-    ];
-    for (let i = 1; i <= range; i++) {
-      directions.push({ dx: i, dz: 0 });
-      directions.push({ dx: -i, dz: 0 });
-      directions.push({ dx: 0, dz: i });
-      directions.push({ dx: 0, dz: -i });
+    // Calculate damage from bomb stats
+    const isCrit = Math.random() * 100 < bomb.critChance;
+    const damage = isCrit ? Math.floor(bomb.attack * bomb.critDamage) : bomb.attack;
+
+    // Get explosion directions from bomb
+    let rawDirs: { dx: number, dz: number }[] = [];
+    if (dirs === 4) {
+      rawDirs = [{ dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 }];
+    } else if (dirs === 1) {
+      rawDirs = [{ dx: bomb.aimDx, dz: bomb.aimDz }];
+    } else if (dirs === 8) {
+      rawDirs = [
+        { dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 },
+        { dx: 1, dz: 1 }, { dx: -1, dz: 1 }, { dx: 1, dz: -1 }, { dx: -1, dz: -1 }
+      ];
     }
 
-    const affectedTiles: { x: number, z: number }[] = [];
-    directions.forEach(dir => {
-      const tx = x + dir.dx;
-      const tz = z + dir.dz;
+    // Build affected tile list: center + each direction extended by range
+    const affectedTiles: { x: number, z: number }[] = [{ x, z }];
+    for (const dir of rawDirs) {
+      for (let i = 1; i <= range; i++) {
+        affectedTiles.push({ x: x + dir.dx * i, z: z + dir.dz * i });
+      }
+    }
+
+    affectedTiles.forEach(({ x: tx, z: tz }) => {
       const key = `${tx},${tz}`;
-      affectedTiles.push({ x: tx, z: tz });
 
       // Destroy blocks
       const block = this.state.grid.get(key);
       if (block && block.type === "destructible") {
         this.state.grid.delete(key);
-        if (owner) {
-          owner.coins += 10;
-        }
-        
-        // Drop a coin (100% chance for now as requested)
+        if (owner) owner.coins += 10;
         const coin = new Coin();
         coin.x = tx;
         coin.z = tz;
         this.state.coins.set(key, coin);
       }
 
+      // Damage bases
       const base = this.state.bases.get(key);
       if (base) {
-        base.health -= 50;
+        base.health -= damage;
         if (base.health <= 0) {
           this.state.bases.delete(key);
           this.checkWinner();
         }
       }
 
-      // Damage towers (center of each base)
+      // Damage towers
       const tower = this.state.towers.get(key);
       if (tower) {
-        tower.health -= 50;
+        tower.health -= damage;
         if (tower.health <= 0) {
           this.state.towers.delete(key);
           this.checkWinner();
         }
       }
 
-      // Damage players
+      // Damage players (armor reduces damage)
       this.state.players.forEach((player, sessionId) => {
         if (Math.round(player.x) === tx && Math.round(player.z) === tz) {
-          player.health -= 50;
+          this.applyDamageToPlayer(damage, player);
           if (player.health <= 0 && player.alive) {
             this.handlePlayerDeath(sessionId, player);
           }
@@ -385,10 +477,27 @@ export class MyRoom extends Room {
     return true;
   }
 
+  applyBirdConfig(player: Player, birdType: string) {
+    const config = BIRD_CONFIGS[birdType] || BIRD_CONFIGS.robin;
+    player.birdType = birdType;
+    player.health = config.health;
+    player.maxHealth = config.health;
+    player.armor = config.armor;
+    player.attack = config.attack;
+    player.critDamage = config.critDamage;
+    player.critChance = config.critChance;
+    player.weaponDirections = config.weaponDirections;
+    player.weaponRange = config.weaponRange;
+    player.moveSpeed = config.moveSpeed;
+  }
+
   onJoin(client: Client, options: any) {
     console.log(`[PID ${process.pid}] MyRoom: onJoin for client ${client.sessionId}`);
     const player = new Player();
-    player.coins = 100; // Starting coins for testing
+    player.coins = 100; // Starting coins
+
+    // Default bird — player can change via selectBird message before game starts
+    this.applyBirdConfig(player, "robin");
 
     if (options.partyId) {
       player.partyId = options.partyId;
@@ -424,8 +533,6 @@ export class MyRoom extends Room {
       }
       if (player.team === -1) player.team = 0;
     }
-
-    const size = 25;
 
     const spawn = this.getSpawnPosition(player.team, this.getTeamMemberCount(player.team));
     player.x = spawn.x;
@@ -482,7 +589,7 @@ export class MyRoom extends Room {
 
   respawnPlayer(sessionId: string, player: Player) {
     player.alive = true;
-    player.health = 100;
+    player.health = player.maxHealth;
     player.respawnTimestamp = 0;
 
     // Find original spawn index for this player
