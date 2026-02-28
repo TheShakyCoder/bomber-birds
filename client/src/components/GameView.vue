@@ -110,6 +110,8 @@ onMounted(() => {
 onUnmounted(() => {
   engine?.dispose();
   window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('keyup', handleKeyUp);
+  if (moveInterval) clearInterval(moveInterval);
 });
 
 const initBabylon = () => {
@@ -150,32 +152,37 @@ const initBabylon = () => {
 
   highlightLayer = new BABYLON.HighlightLayer("hl1", scene);
 
+  const MOVE_DURATION = 800; // ms — matches movement interval
+
   engine.runRenderLoop(() => {
     const now = Date.now();
-    const lerpSpeed = 0.2; // Adjust for smoothness vs responsiveness
-    const rotLerpSpeed = 0.15;
 
     playerMeshes.forEach((mesh, sessionId) => {
       if (mesh.targetPos) {
-        const dx = mesh.targetPos.x - mesh.position.x;
-        const dz = mesh.targetPos.z - mesh.position.z;
-
-        if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
-          const targetRotation = Math.atan2(dx, dz);
-          let diff = targetRotation - mesh.rotation.y;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          mesh.rotation.y += diff * rotLerpSpeed;
-        }
-
-        // Check distance for instant snap (respawn/teleport)
-        const distSq = dx * dx + dz * dz;
-        if (distSq > 4) { // Distance > 2
+        if (mesh.moveStartTime) {
+          const t = Math.min(1, (now - mesh.moveStartTime) / MOVE_DURATION);
+          mesh.position.x = mesh.startPos.x + (mesh.targetPos.x - mesh.startPos.x) * t;
+          mesh.position.z = mesh.startPos.z + (mesh.targetPos.z - mesh.startPos.z) * t;
+        } else {
           mesh.position.x = mesh.targetPos.x;
           mesh.position.z = mesh.targetPos.z;
-        } else {
-          mesh.position.x = BABYLON.Scalar.Lerp(mesh.position.x, mesh.targetPos.x, lerpSpeed);
-          mesh.position.z = BABYLON.Scalar.Lerp(mesh.position.z, mesh.targetPos.z, lerpSpeed);
+        }
+
+        // Face movement direction — snap to nearest 90° then lerp
+        const dx = mesh.targetPos.x - (mesh.startPos?.x ?? mesh.position.x);
+        const dz = mesh.targetPos.z - (mesh.startPos?.z ?? mesh.position.z);
+        if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
+          const rawAngle = Math.atan2(dx, dz);
+          // Snap to nearest 90° (0, π/2, π, -π/2)
+          const snapped = Math.round(rawAngle / (Math.PI / 2)) * (Math.PI / 2);
+          mesh.targetRotY = snapped;
+        }
+        if (mesh.targetRotY !== undefined) {
+          let diff = mesh.targetRotY - mesh.rotation.y;
+          // Shortest path
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          mesh.rotation.y += diff * 0.2;
         }
       }
     });
@@ -200,6 +207,7 @@ const initBabylon = () => {
 
   window.addEventListener('resize', () => engine.resize());
   window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('keyup', handleKeyUp);
 };
 
 const setupRoomListeners = () => {
@@ -361,10 +369,15 @@ const setupRoomListeners = () => {
           createPlayerMesh(sessionId, player);
         }
         
-        // Push target position to mesh for interpolation in render loop
+        // Push target position to mesh for linear motion in render loop
         const mesh = playerMeshes.get(sessionId);
         if (mesh) {
-          mesh.targetPos = { x: player.x, z: player.z };
+          // Only start a new motion if the target actually changed
+          if (!mesh.targetPos || mesh.targetPos.x !== player.x || mesh.targetPos.z !== player.z) {
+            mesh.startPos = { x: mesh.position.x, z: mesh.position.z };
+            mesh.moveStartTime = Date.now();
+            mesh.targetPos = { x: player.x, z: player.z };
+          }
           mesh.isVisible = player.alive;
         }
       });
@@ -778,79 +791,101 @@ const updateRangePreview = () => {
   });
 };
 
+// --- Continuous movement via held keys ---
+const pressedKeys = new Set();
+let moveInterval = null;
+
+const getMoveFromKeys = (team) => {
+  let dx = 0, dz = 0;
+
+  const up = pressedKeys.has('w') || pressedKeys.has('ArrowUp');
+  const down = pressedKeys.has('s') || pressedKeys.has('ArrowDown');
+  const left = pressedKeys.has('a') || pressedKeys.has('ArrowLeft');
+  const right = pressedKeys.has('d') || pressedKeys.has('ArrowRight');
+
+  // Remap based on team rotation
+  if (team === 0) {
+    if (up) dz += 1; if (down) dz -= 1; if (left) dx -= 1; if (right) dx += 1;
+  } else if (team === 1) {
+    if (up) dz -= 1; if (down) dz += 1; if (left) dx += 1; if (right) dx -= 1;
+  } else if (team === 2) {
+    if (up) dx += 1; if (down) dx -= 1; if (left) dz += 1; if (right) dz -= 1;
+  } else if (team === 3) {
+    if (up) dx -= 1; if (down) dx += 1; if (left) dz -= 1; if (right) dz += 1;
+  }
+
+  // Clamp to single-tile steps (no diagonal for now)
+  if (dx !== 0 && dz !== 0) { dz = 0; } // Prioritize horizontal
+  if (dx !== 0) dx = dx > 0 ? 1 : -1;
+  if (dz !== 0) dz = dz > 0 ? 1 : -1;
+
+  return (dx !== 0 || dz !== 0) ? { dx, dz } : null;
+};
+
+const startMoveLoop = () => {
+  if (moveInterval) return;
+  moveInterval = setInterval(() => {
+    const myPlayer = playersData.value[props.room.sessionId];
+    if (!myPlayer || !myPlayer.alive) return;
+    const move = getMoveFromKeys(myPlayer.team);
+    if (move) props.room.send("move", move);
+  }, 800);
+};
+
+const stopMoveLoop = () => {
+  if (pressedKeys.size === 0 && moveInterval) {
+    clearInterval(moveInterval);
+    moveInterval = null;
+  }
+};
+
 const handleKeyDown = (e) => {
   const myPlayer = playersData.value[props.room.sessionId];
   if (!myPlayer) return;
 
-  // Prevent default browser behavior for control keys
   const controlledKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 's', 'a', 'd', ' '];
-  if (controlledKeys.includes(e.key)) {
-    e.preventDefault();
+  if (controlledKeys.includes(e.key)) e.preventDefault();
+
+  if (e.key === ' ' && !e.repeat) {
+    const me = playersData.value[props.room.sessionId];
+    if (me) {
+      const rawDx = mouseWorldPos.x - me.x;
+      const rawDz = mouseWorldPos.z - me.z;
+      const angle = Math.atan2(rawDz, rawDx);
+      const octant = Math.round(angle / (Math.PI / 4));
+      const snapAngles = {
+        0:  { dx: 1,  dz: 0 },
+        1:  { dx: 1,  dz: 1 },
+        2:  { dx: 0,  dz: 1 },
+        3:  { dx: -1, dz: 1 },
+        4:  { dx: -1, dz: 0 },
+        '-1': { dx: 1,  dz: -1 },
+        '-2': { dx: 0,  dz: -1 },
+        '-3': { dx: -1, dz: -1 },
+        '-4': { dx: -1, dz: 0 },
+      };
+      const aim = snapAngles[octant] || { dx: 0, dz: 1 };
+      props.room.send("placeBomb", { aimDx: aim.dx, aimDz: aim.dz });
+    } else {
+      props.room.send("placeBomb");
+    }
+    return;
   }
 
-  // Prevent repeat bomb drops when holding spacebar
-  if (e.repeat) return;
-
-  let move = null;
-  const team = myPlayer.team;
-
-  // Remap keys based on team rotation (Bottom-Left perspective)
-  switch (e.key) {
-    case 'ArrowUp': case 'w': 
-        if (team === 0) move = { dx: 0, dz: 1 };
-        else if (team === 1) move = { dx: 0, dz: -1 };
-        else if (team === 2) move = { dx: 1, dz: 0 };
-        else if (team === 3) move = { dx: -1, dz: 0 };
-        break;
-    case 'ArrowDown': case 's': 
-        if (team === 0) move = { dx: 0, dz: -1 };
-        else if (team === 1) move = { dx: 0, dz: 1 };
-        else if (team === 2) move = { dx: -1, dz: 0 };
-        else if (team === 3) move = { dx: 1, dz: 0 };
-        break;
-    case 'ArrowLeft': case 'a': 
-        if (team === 0) move = { dx: -1, dz: 0 };
-        else if (team === 1) move = { dx: 1, dz: 0 };
-        else if (team === 2) move = { dx: 0, dz: 1 };
-        else if (team === 3) move = { dx: 0, dz: -1 };
-        break;
-    case 'ArrowRight': case 'd': 
-        if (team === 0) move = { dx: 1, dz: 0 };
-        else if (team === 1) move = { dx: -1, dz: 0 };
-        else if (team === 2) move = { dx: 0, dz: -1 };
-        else if (team === 3) move = { dx: 0, dz: 1 };
-        break;
-    case ' ':
-      const me = playersData.value[props.room.sessionId];
-      if (me) {
-        // Calculate aim direction from player to mouse for 1-dir birds
-        const rawDx = mouseWorldPos.x - me.x;
-        const rawDz = mouseWorldPos.z - me.z;
-        const angle = Math.atan2(rawDz, rawDx);
-        // Snap to nearest of 8 directions
-        const octant = Math.round(angle / (Math.PI / 4));
-        const snapAngles = {
-          0:  { dx: 1,  dz: 0 },
-          1:  { dx: 1,  dz: 1 },
-          2:  { dx: 0,  dz: 1 },
-          3:  { dx: -1, dz: 1 },
-          4:  { dx: -1, dz: 0 },
-          '-1': { dx: 1,  dz: -1 },
-          '-2': { dx: 0,  dz: -1 },
-          '-3': { dx: -1, dz: -1 },
-          '-4': { dx: -1, dz: 0 },
-        };
-        const aim = snapAngles[octant] || { dx: 0, dz: 1 };
-        props.room.send("placeBomb", { aimDx: aim.dx, aimDz: aim.dz });
-      } else {
-        props.room.send("placeBomb");
-      }
-      break;
+  const moveKeys = ['w', 'a', 's', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+  if (moveKeys.includes(e.key)) {
+    if (e.repeat) return; // Ignore browser key repeats — interval handles continuous movement
+    pressedKeys.add(e.key);
+    // Send first move immediately for responsiveness
+    const move = getMoveFromKeys(myPlayer.team);
+    if (move) props.room.send("move", move);
+    startMoveLoop();
   }
+};
 
-  if (move) {
-    props.room.send("move", move);
-  }
+const handleKeyUp = (e) => {
+  pressedKeys.delete(e.key);
+  stopMoveLoop();
 };
 
 const buyUpgrade = (item) => {
