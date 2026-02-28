@@ -338,6 +338,16 @@ export class MyRoom extends Room {
         }
       }
 
+      // Damage towers (center of each base)
+      const tower = this.state.towers.get(key);
+      if (tower) {
+        tower.health -= 50;
+        if (tower.health <= 0) {
+          this.state.towers.delete(key);
+          this.checkWinner();
+        }
+      }
+
       // Damage players
       this.state.players.forEach((player, sessionId) => {
         if (Math.round(player.x) === tx && Math.round(player.z) === tz) {
@@ -354,8 +364,8 @@ export class MyRoom extends Room {
 
   checkWinner() {
     const aliveTeams = new Set<number>();
-    this.state.bases.forEach(base => {
-      aliveTeams.add(base.team);
+    this.state.towers.forEach(tower => {
+      aliveTeams.add(tower.team);
     });
 
     if (aliveTeams.size === 1 && this.state.gameStarted) {
