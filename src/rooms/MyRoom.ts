@@ -413,7 +413,6 @@ export class MyRoom extends Room {
       const block = this.state.grid.get(key);
       if (block && block.type === "destructible") {
         this.state.grid.delete(key);
-        if (owner) owner.coins += 1;
         const coin = new Coin();
         coin.x = tx;
         coin.z = tz;
