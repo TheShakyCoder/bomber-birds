@@ -29,6 +29,8 @@ const basesHealth = ref({}); // team -> { health, isTurret }
 const syncTimeoutReached = ref(false);
 const showShop = ref(false);
 let mouseWorldPos = { x: 0, z: 0 }; // tracked via pointer observable
+let isMoving = false; // true while the local player is animating toward a destination
+let lastMoveSentTime = 0; // protect against race conditions
 
 const totalPlayers = computed(() => Object.keys(playersData.value).length || 0);
 const loadedPlayers = computed(() => {
@@ -111,7 +113,6 @@ onUnmounted(() => {
   engine?.dispose();
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
-  if (moveInterval) clearInterval(moveInterval);
 });
 
 const initBabylon = () => {
@@ -158,11 +159,30 @@ const initBabylon = () => {
     const now = Date.now();
 
     playerMeshes.forEach((mesh, sessionId) => {
-      if (mesh.targetPos) {
+      const player = playersData.value[sessionId];
+      if (mesh.targetPos && player) {
         if (mesh.moveStartTime) {
-          const t = Math.min(1, (now - mesh.moveStartTime) / MOVE_DURATION);
+          const moveDuration = 800 / (player.moveSpeed || 1);
+          const t = Math.min(1, (now - mesh.moveStartTime) / moveDuration);
           mesh.position.x = mesh.startPos.x + (mesh.targetPos.x - mesh.startPos.x) * t;
           mesh.position.z = mesh.startPos.z + (mesh.targetPos.z - mesh.startPos.z) * t;
+
+          // When local player arrives, allow the next move
+          if (t >= 1 && sessionId === props.room.sessionId && isMoving) {
+            // Only clear isMoving if the move has had time for the state to arrive
+            if (now - lastMoveSentTime > 150) { 
+              isMoving = false;
+              // If keys are still held, send next move immediately
+              if (player.alive && pressedKeys.size > 0) {
+                const move = getMoveFromKeys(player.team);
+                if (move) {
+                  isMoving = true;
+                  lastMoveSentTime = now;
+                  props.room.send("move", move);
+                }
+              }
+            }
+          }
         } else {
           mesh.position.x = mesh.targetPos.x;
           mesh.position.z = mesh.targetPos.z;
@@ -769,9 +789,8 @@ const updateRangePreview = () => {
   mesh.position.set(x, 0.015, z);
 };
 
-// --- Continuous movement via held keys ---
+// --- Movement via held keys (arrival-gated) ---
 const pressedKeys = new Set();
-let moveInterval = null;
 
 const getMoveFromKeys = (team) => {
   let dx = 0, dz = 0;
@@ -800,20 +819,15 @@ const getMoveFromKeys = (team) => {
   return (dx !== 0 || dz !== 0) ? { dx, dz } : null;
 };
 
-const startMoveLoop = () => {
-  if (moveInterval) return;
-  moveInterval = setInterval(() => {
-    const myPlayer = playersData.value[props.room.sessionId];
-    if (!myPlayer || !myPlayer.alive) return;
-    const move = getMoveFromKeys(myPlayer.team);
-    if (move) props.room.send("move", move);
-  }, 800);
-};
-
-const stopMoveLoop = () => {
-  if (pressedKeys.size === 0 && moveInterval) {
-    clearInterval(moveInterval);
-    moveInterval = null;
+const trySendMove = () => {
+  if (isMoving) return; // still animating — wait for arrival
+  const myPlayer = playersData.value[props.room.sessionId];
+  if (!myPlayer || !myPlayer.alive) return;
+  const move = getMoveFromKeys(myPlayer.team);
+  if (move) {
+    isMoving = true;
+    lastMoveSentTime = Date.now();
+    props.room.send("move", move);
   }
 };
 
@@ -852,18 +866,14 @@ const handleKeyDown = (e) => {
 
   const moveKeys = ['w', 'a', 's', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
   if (moveKeys.includes(e.key)) {
-    if (e.repeat) return; // Ignore browser key repeats — interval handles continuous movement
+    if (e.repeat) return;
     pressedKeys.add(e.key);
-    // Send first move immediately for responsiveness
-    const move = getMoveFromKeys(myPlayer.team);
-    if (move) props.room.send("move", move);
-    startMoveLoop();
+    trySendMove();
   }
 };
 
 const handleKeyUp = (e) => {
   pressedKeys.delete(e.key);
-  stopMoveLoop();
 };
 
 const buyUpgrade = (item) => {

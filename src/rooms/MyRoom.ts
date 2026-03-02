@@ -19,6 +19,7 @@ export class MyRoom extends Room {
   state = new MyRoomState();
   countdownInterval: any;
   turretLastFired: Map<string, number> = new Map(); // key -> timestamp
+  playerLastMoveAt: Map<string, number> = new Map(); // sessionId -> timestamp
 
   onCreate(options: any) {
     console.log(`[PID ${process.pid}] MyRoom: onCreate for room ${this.roomId}`);
@@ -67,6 +68,14 @@ export class MyRoom extends Room {
       if (!this.state.gameStarted) return;
       const player = this.state.players.get(client.sessionId);
       if (player && player.alive) {
+        // Enforce cooldown (800ms base, scaled by moveSpeed)
+        const now = Date.now();
+        const lastMoveAt = this.playerLastMoveAt.get(client.sessionId) || 0;
+        const cooldown = 800 / (player.moveSpeed || 1);
+        if (now - lastMoveAt < cooldown - 50) return; // 50ms grace for network jitter
+
+        this.playerLastMoveAt.set(client.sessionId, now);
+
         const dx = message.dx || 0;
         const dz = message.dz || 0;
         const nextX = player.x + dx;
