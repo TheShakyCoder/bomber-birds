@@ -746,49 +746,27 @@ const updateRangePreview = () => {
 
   const x = Math.round(me.x);
   const z = Math.round(me.z);
-  const range = me.weaponRange || 2;
-  const dirs = me.weaponDirections || 4;
-  const tiles = [{ x, z }];
+  const teamColor = TEAM_COLORS[me.team] || new BABYLON.Color3(1, 1, 1);
 
-  if (dirs === 4) {
-    for (let i = 1; i <= range; i++) {
-      tiles.push({ x: x + i, z }, { x: x - i, z }, { x, z: z + i }, { x, z: z - i });
-    }
-  } else if (dirs === 1) {
-    // Aim toward mouse position, snapped to 8 directions
-    const rawDx = mouseWorldPos.x - x;
-    const rawDz = mouseWorldPos.z - z;
-    const angle = Math.atan2(rawDz, rawDx);
-    const octant = Math.round(angle / (Math.PI / 4));
-    const snapMap = { 0: [1,0], 1: [1,1], 2: [0,1], 3: [-1,1], 4: [-1,0], '-1': [1,-1], '-2': [0,-1], '-3': [-1,-1], '-4': [-1,0] };
-    const [adx, adz] = snapMap[octant] || [0, 1];
-    for (let i = 1; i <= range; i++) tiles.push({ x: x + adx * i, z: z + adz * i });
-  } else if (dirs === 8) {
-    for (let i = 1; i <= range; i++) {
-      tiles.push({ x: x + i, z }, { x: x - i, z }, { x, z: z + i }, { x, z: z - i });
-      tiles.push({ x: x + i, z: z + i }, { x: x - i, z: z + i }, { x: x + i, z: z - i }, { x: x - i, z: z - i });
-    }
-  }
-
-  // Reuse or recreate meshes
-  while (rangePreviewMeshes.length > tiles.length) {
+  // Only show a single tile under the player in their team colour
+  while (rangePreviewMeshes.length > 1) {
     rangePreviewMeshes.pop().dispose();
   }
 
-  tiles.forEach((tile, i) => {
-    let mesh = rangePreviewMeshes[i];
-    if (!mesh) {
-      mesh = BABYLON.MeshBuilder.CreatePlane(`rangePreview_${i}`, { size: 0.95 }, scene);
-      mesh.rotation.x = Math.PI / 2;
-      const mat = new BABYLON.StandardMaterial(`rangePreviewMat_${i}`, scene);
-      mat.diffuseColor = new BABYLON.Color3(1, 1, 1);
-      mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
-      mat.alpha = 0.15;
-      mesh.material = mat;
-      rangePreviewMeshes.push(mesh);
-    }
-    mesh.position.set(tile.x, 0.015, tile.z); // Slightly lower than glow
-  });
+  let mesh = rangePreviewMeshes[0];
+  if (!mesh) {
+    mesh = BABYLON.MeshBuilder.CreatePlane(`rangePreview_0`, { size: 0.95 }, scene);
+    mesh.rotation.x = Math.PI / 2;
+    const mat = new BABYLON.StandardMaterial(`rangePreviewMat_0`, scene);
+    mat.alpha = 0.25;
+    mesh.material = mat;
+    rangePreviewMeshes.push(mesh);
+  }
+
+  // Update colour to match team
+  mesh.material.diffuseColor = teamColor;
+  mesh.material.emissiveColor = teamColor.scale(0.6);
+  mesh.position.set(x, 0.015, z);
 };
 
 // --- Continuous movement via held keys ---
