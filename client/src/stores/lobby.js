@@ -13,9 +13,8 @@ export const useLobbyStore = defineStore('lobby', () => {
     
     // Auto-detect production URL if not explicitly provided
     if (!serverUrl && (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         // Force the /colyseus/ path which is required by our Nginx/App proxy setup
-        serverUrl = `${protocol}//${window.location.host}/colyseus/`;
+        serverUrl = `${window.location.protocol}//${window.location.host}/colyseus/`;
     }
 
     // Ensure it's a string and has a protocol if not defaulting
@@ -24,10 +23,6 @@ export const useLobbyStore = defineStore('lobby', () => {
         // will strip the `/colyseus` path and resolve to `/matchmake`.
         if (!serverUrl.endsWith('/')) {
             serverUrl += '/';
-        }
-        // Ensure https/http is converted to wss/ws for the Colyseus client if needed
-        if (serverUrl.startsWith('http')) {
-            serverUrl = serverUrl.replace(/^http/, 'ws');
         }
     }
 
