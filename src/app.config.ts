@@ -133,6 +133,15 @@ const server = defineServer({
             }
         }),
 
+        "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
+            const indexFile = path.resolve(process.cwd(), "public", "index.html");
+            if (await Bun.file(indexFile).exists()) {
+                return new Response(Bun.file(indexFile), { headers: { "Content-Type": "text/html" } });
+            }
+            console.error(`[PID ${process.pid}] Static: Root lookup failed. Path: ${indexFile}`);
+            return new Response("Application not built. Check 'public/' directory.", { status: 404 });
+        }),
+
         "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
             // CRITICAL: Do not intercept Colyseus internal routes (matchmaking, websocket)
             if (ctx.path.startsWith("/matchmake") || ctx.path.startsWith("/rooms")) {
@@ -146,40 +155,35 @@ const server = defineServer({
 
             // Remove leading slash for static path lookup
             const staticPath = (ctx.path as string).replace(/^\//, '') || "index.html";
-            const filePath = path.join(process.cwd(), "public", staticPath);
+            const filePath = path.resolve(process.cwd(), "public", staticPath);
             const file = Bun.file(filePath);
 
             const exists = await file.exists();
-            console.log(`[PID ${process.pid}] Static: ${ctx.path} -> ${filePath} (exists: ${exists})`);
-
-            const getContentType = (filename: string) => {
-                const ext = path.extname(filename).toLowerCase();
-                const map: any = {
-                    ".html": "text/html",
-                    ".js": "text/javascript",
-                    ".css": "text/css",
-                    ".png": "image/png",
-                    ".jpg": "image/jpeg",
-                    ".svg": "image/svg+xml",
-                    ".json": "application/json",
-                    ".ico": "image/x-icon"
-                };
-                return map[ext] || "text/plain";
-            };
-
             if (exists) {
-                return new Response(file, {
-                    headers: { "Content-Type": getContentType(filePath) }
-                });
+                const getContentType = (filename: string) => {
+                    const ext = path.extname(filename).toLowerCase();
+                    const map: any = {
+                        ".html": "text/html",
+                        ".js": "text/javascript",
+                        ".css": "text/css",
+                        ".png": "image/png",
+                        ".jpg": "image/jpeg",
+                        ".svg": "image/svg+xml",
+                        ".json": "application/json",
+                        ".ico": "image/x-icon"
+                    };
+                    return map[ext] || "text/plain";
+                };
+                return new Response(file, { headers: { "Content-Type": getContentType(filePath) } });
             } else {
                 // SPA Fallback: serve index.html for unknown HTML/Navigation requests
-                // But NOT for missing assets/files (with dots) or Colyseus routes
                 if (!staticPath.includes(".") && !ctx.path.startsWith("/api")) {
-                    const indexFile = path.join(process.cwd(), "public", "index.html");
-                    return new Response(Bun.file(indexFile), {
-                        headers: { "Content-Type": "text/html" }
-                    });
+                    const indexFile = path.resolve(process.cwd(), "public", "index.html");
+                    if (await Bun.file(indexFile).exists()) {
+                        return new Response(Bun.file(indexFile), { headers: { "Content-Type": "text/html" } });
+                    }
                 }
+                console.warn(`[PID ${process.pid}] Static: File Not Found: ${filePath}`);
                 return new Response("Not Found", { status: 404 });
             }
         }),
