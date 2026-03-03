@@ -53,11 +53,6 @@ if (REDIS_URL) {
 const server = defineServer({
     options: serverOptions,
     routes: createRouter({
-        "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
-            const filePath = path.join(__dirname, "..", "public", "index.html");
-            return new Response(Bun.file(filePath));
-        }),
-        
         "/ping": createEndpoint("/ping", { method: "GET" }, async (ctx) => {
             console.log(`[PID ${process.pid}] Server: GET /ping hit`);
             return ctx.json({ 
@@ -66,7 +61,8 @@ const server = defineServer({
                 time: new Date().toISOString(), 
                 pid: process.pid,
                 publicAddress: (matchMaker as any).publicAddress || "EFC",
-                colyseusEnv: process.env.COLYSEUS_PUBLIC_ADDRESS || "MISSING"
+                colyseusEnv: process.env.COLYSEUS_PUBLIC_ADDRESS || "MISSING",
+                cwd: process.cwd()
             });
         }),
 
@@ -150,16 +146,19 @@ const server = defineServer({
 
             // Remove leading slash for static path lookup
             const staticPath = (ctx.path as string).replace(/^\//, '') || "index.html";
-            const filePath = path.join(__dirname, "..", "public", staticPath);
+            const filePath = path.join(process.cwd(), "public", staticPath);
             const file = Bun.file(filePath);
 
-            if (await file.exists()) {
+            const exists = await file.exists();
+            console.log(`[PID ${process.pid}] Static: ${ctx.path} -> ${filePath} (exists: ${exists})`);
+
+            if (exists) {
                 return new Response(file);
             } else {
                 // SPA Fallback: serve index.html for unknown HTML/Navigation requests
                 // But NOT for missing assets/files (with dots) or Colyseus routes
                 if (!staticPath.includes(".") && !ctx.path.startsWith("/api")) {
-                    const indexFile = path.join(__dirname, "..", "public", "index.html");
+                    const indexFile = path.join(process.cwd(), "public", "index.html");
                     return new Response(Bun.file(indexFile));
                 }
                 return new Response("Not Found", { status: 404 });
