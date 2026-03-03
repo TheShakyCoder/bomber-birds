@@ -31,7 +31,7 @@ const REDIS_URL = process.env.REDIS_URL;
 
 // Build server options — only use Redis if REDIS_URL is explicitly provided
 const serverOptions: any = {
-    publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS || process.env.VITE_DOMAIN || undefined,
+    publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS || process.env.VITE_DOMAIN || process.env.APP_URL || undefined,
 };
 
 if (REDIS_URL) {
@@ -135,15 +135,17 @@ const server = defineServer({
                 return;
             }
 
-            const staticPath = (ctx.path as string) === "/" ? "index.html" : ctx.path;
+            // Remove leading slash for static path lookup
+            const staticPath = (ctx.path as string).replace(/^\//, '') || "index.html";
             const filePath = path.join(__dirname, "..", "public", staticPath);
             const file = Bun.file(filePath);
 
             if (await file.exists()) {
                 return new Response(file);
             } else {
-                // SPA Fallback: serve index.html for unknown routes if they don't look like file requests
-                if (!ctx.path.includes(".")) {
+                // SPA Fallback: serve index.html for unknown HTML/Navigation requests
+                // But NOT for missing assets/files (with dots) or Colyseus routes
+                if (!staticPath.includes(".") && !ctx.path.startsWith("/api")) {
                     const indexFile = path.join(__dirname, "..", "public", "index.html");
                     return new Response(Bun.file(indexFile));
                 }
@@ -164,6 +166,8 @@ const server = defineServer({
         if (transport && router && typeof transport.bindRouter === 'function') {
             transport.bindRouter(router);
         }
+
+        console.log(`[PID ${process.pid}] Server: Matchmaker Public Address: ${(matchMaker as any).publicAddress || "AUTO"}`);
 
         // Only bootstrap a room from the first PM2 worker to avoid race conditions
         // in cluster mode. process.env.pm_id is '0' for the primary worker.
