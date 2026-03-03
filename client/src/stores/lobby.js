@@ -10,11 +10,12 @@ export const GREEK_LETTERS = [
 
 export const useLobbyStore = defineStore('lobby', () => {
     let serverUrl = import.meta.env.VITE_WS_URL || "";
-
-    // Smart fallback if environment variables fail to load during build
-    if (!serverUrl && window.location.hostname.includes('.on-forge.com')) {
+    
+    // Auto-detect production URL if not explicitly provided
+    if (!serverUrl && (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        serverUrl = `${protocol}//${window.location.hostname}/colyseus/`;
+        // Check if we are serving from a path (like /colyseus) or root
+        serverUrl = `${protocol}//${window.location.host}/`;
     }
 
     // Ensure it's a string and has a protocol if not defaulting

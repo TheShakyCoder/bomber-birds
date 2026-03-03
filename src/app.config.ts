@@ -31,7 +31,7 @@ const REDIS_URL = process.env.REDIS_URL;
 
 // Build server options — only use Redis if REDIS_URL is explicitly provided
 const serverOptions: any = {
-    publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS,
+    publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS || process.env.VITE_DOMAIN || undefined,
 };
 
 if (REDIS_URL) {
@@ -130,15 +130,19 @@ const server = defineServer({
         }),
 
         "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
-            const filePath = path.join(__dirname, "..", "public", ctx.path);
+            const staticPath = (ctx.path as string) === "/" ? "index.html" : ctx.path;
+            const filePath = path.join(__dirname, "..", "public", staticPath);
             const file = Bun.file(filePath);
 
             if (await file.exists()) {
                 return new Response(file);
             } else {
-                // SPA Fallback: serve index.html for unknown routes
-                const indexFile = path.join(__dirname, "..", "public", "index.html");
-                return new Response(Bun.file(indexFile));
+                // SPA Fallback: serve index.html for unknown routes if they don't look like file requests
+                if (!ctx.path.includes(".")) {
+                    const indexFile = path.join(__dirname, "..", "public", "index.html");
+                    return new Response(Bun.file(indexFile));
+                }
+                return new Response("Not Found", { status: 404 });
             }
         }),
     }),
