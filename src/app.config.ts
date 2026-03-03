@@ -130,6 +130,11 @@ const server = defineServer({
         }),
 
         "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
+            // CRITICAL: Do not intercept Colyseus internal routes (matchmaking, websocket)
+            if (ctx.path.startsWith("/matchmake") || ctx.path.startsWith("/rooms")) {
+                return;
+            }
+
             const staticPath = (ctx.path as string) === "/" ? "index.html" : ctx.path;
             const filePath = path.join(__dirname, "..", "public", staticPath);
             const file = Bun.file(filePath);
