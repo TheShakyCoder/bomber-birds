@@ -3,7 +3,7 @@ FROM oven/bun:latest AS client-builder
 WORKDIR /app/client
 
 # Copy client dependencies and install
-COPY client/package.json client/bun.lockb ./
+COPY client/package.json client/bun.lock ./
 RUN bun install
 
 # Copy client source and build
@@ -16,7 +16,7 @@ FROM oven/bun:latest AS server-builder
 WORKDIR /app
 
 # Copy root dependencies and install
-COPY package.json bun.lockb ./
+COPY package.json bun.lock ./
 RUN bun install
 
 # Copy server source and build
