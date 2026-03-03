@@ -29,9 +29,17 @@ const __dirname = path.dirname(__filename);
 
 const REDIS_URL = process.env.REDIS_URL;
 
-// Build server options — only use Redis if REDIS_URL is explicitly provided
+// Helper to strip protocols and paths for Colyseus publicAddress
+const getCleanPublicAddress = (url?: string) => {
+    if (!url) return undefined;
+    return url.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+};
+
 const serverOptions: any = {
-    publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS || process.env.VITE_DOMAIN || process.env.APP_URL || undefined,
+    publicAddress: process.env.COLYSEUS_PUBLIC_ADDRESS || 
+                   getCleanPublicAddress(process.env.VITE_DOMAIN) || 
+                   getCleanPublicAddress(process.env.APP_URL) || 
+                   undefined,
 };
 
 if (REDIS_URL) {
@@ -132,6 +140,11 @@ const server = defineServer({
         "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
             // CRITICAL: Do not intercept Colyseus internal routes (matchmaking, websocket)
             if (ctx.path.startsWith("/matchmake") || ctx.path.startsWith("/rooms")) {
+                return;
+            }
+
+            // EXTRA PROTECTION: Never intercept WebSocket upgrades
+            if (ctx.request.headers.get("upgrade")?.toLowerCase() === "websocket") {
                 return;
             }
 

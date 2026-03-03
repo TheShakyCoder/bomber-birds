@@ -14,8 +14,8 @@ export const useLobbyStore = defineStore('lobby', () => {
     // Auto-detect production URL if not explicitly provided
     if (!serverUrl && (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Check if we are serving from a path (like /colyseus) or root
-        serverUrl = `${protocol}//${window.location.host}/`;
+        // Force the /colyseus/ path which is required by our Nginx/App proxy setup
+        serverUrl = `${protocol}//${window.location.host}/colyseus/`;
     }
 
     // Ensure it's a string and has a protocol if not defaulting
