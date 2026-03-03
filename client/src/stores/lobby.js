@@ -24,6 +24,12 @@ export const useLobbyStore = defineStore('lobby', () => {
         if (!serverUrl.endsWith('/')) {
             serverUrl += '/';
         }
+        
+        // CRITICAL: For browser 'fetch' and Colyseus HTTP calls, we MUST use http/https protocols.
+        // Colyseus SDK will automatically upgrade to ws/wss for WebSocket connections.
+        if (serverUrl.startsWith('ws')) {
+            serverUrl = serverUrl.replace(/^ws/, 'http');
+        }
     }
 
     console.log("LobbyStore: Initializing Colyseus", {
@@ -275,6 +281,11 @@ export const useLobbyStore = defineStore('lobby', () => {
             const response = await client.http.get("api/rooms");
             rooms.value = response.data;
         } catch (e) {
+            console.error("LobbyStore: fetchRooms Failed", {
+                endpoint: client.endpoint,
+                error: e.message,
+                stack: e.stack
+            });
             errorMessage.value = "Failed to fetch rooms: " + e.message;
         } finally {
             isLoading.value = false;
