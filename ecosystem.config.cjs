@@ -6,7 +6,7 @@ module.exports = {
             // TODO: Switch to instances: "max" + exec_mode: "cluster" once Redis is ready
             instances: 1,
             exec_mode: "fork",
-            interpreter: "bun"
+            interpreter: "node"
         },
     ],
 };
