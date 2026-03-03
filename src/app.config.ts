@@ -53,6 +53,10 @@ if (REDIS_URL) {
 const server = defineServer({
     options: serverOptions,
     routes: createRouter({
+        "/health": createEndpoint("/health", { method: "GET" }, async (ctx) => {
+            return new Response("OK", { status: 200 });
+        }),
+
         "/ping": createEndpoint("/ping", { method: "GET" }, async (ctx) => {
             console.log(`[PID ${process.pid}] Server: GET /ping hit`);
             return ctx.json({ 
