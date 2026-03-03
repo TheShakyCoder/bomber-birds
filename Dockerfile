@@ -25,7 +25,7 @@ COPY tsconfig.json tsconfig.build.json ./
 RUN bun run build:server
 
 # Stage 3: Final Image
-FROM oven/bun:latest-slim
+FROM oven/bun:latest
 WORKDIR /app
 
 # Copy built assets from previous stages
