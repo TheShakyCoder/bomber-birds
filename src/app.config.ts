@@ -46,7 +46,8 @@ const server = defineServer({
     options: serverOptions,
     routes: createRouter({
         "/": createEndpoint("/", { method: "GET" }, async (ctx) => {
-            return new Response("Colyseus Server is Running!");
+            const filePath = path.join(__dirname, "..", "public", "index.html");
+            return new Response(Bun.file(filePath));
         }),
         
         "/ping": createEndpoint("/ping", { method: "GET" }, async (ctx) => {
@@ -129,8 +130,16 @@ const server = defineServer({
         }),
 
         "/**": createEndpoint("/**", { method: "GET" }, async (ctx) => {
-            console.log(`Server: 404 - Route not found: ${ctx.path}`);
-            return new Response(`Route not found in router: ${ctx.path}`, { status: 404 });
+            const filePath = path.join(__dirname, "..", "public", ctx.path);
+            const file = Bun.file(filePath);
+
+            if (await file.exists()) {
+                return new Response(file);
+            } else {
+                // SPA Fallback: serve index.html for unknown routes
+                const indexFile = path.join(__dirname, "..", "public", "index.html");
+                return new Response(Bun.file(indexFile));
+            }
         }),
     }),
 

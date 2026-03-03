@@ -2,7 +2,7 @@
 pkgs = ["bun"]
 
 [phases.install]
-cmds = ["bun install"]
+cmds = ["bun install", "cd client && bun install"]
 
 [phases.build]
 cmds = ["bun run build"]
