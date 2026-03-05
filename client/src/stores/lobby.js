@@ -13,8 +13,8 @@ export const useLobbyStore = defineStore('lobby', () => {
     
     // Auto-detect production URL if not explicitly provided
     if (!serverUrl && (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) {
-        // Force the /colyseus/ path which is required by our Nginx/App proxy setup
-        serverUrl = `${window.location.protocol}//${window.location.host}/colyseus/`;
+        // On Coolify, the container serves directly — no path prefix needed
+        serverUrl = `${window.location.protocol}//${window.location.host}/`;
     }
 
     // Ensure it's a string and has a protocol if not defaulting
